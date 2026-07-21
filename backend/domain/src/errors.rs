@@ -1,20 +1,27 @@
+// backend/domain/src/errors.rs
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DomainError {
-    NotFound(String),
-    InvalidState(String),
-    InsufficientStock(String),
-    ValidationFailed(String),
+    InsufficientStock {
+        variant_id: uuid::Uuid,
+        requested: i32,
+        available: i32,
+    },
+    ConcurrentStateModification, // Triggers on mismatched OCC version
+    IdempotencyConflict,
+    VariantNotFound,
+    ProductNotFound,
+    SnapshotNotFound(uuid::Uuid),
+    OrderNotFound,
+    UserNotFound,
+    UserAlreadyExists,
+    Unauthorized,
+    InvalidStateTransition,
+    CurrencyMismatch {
+        variant_id: uuid::Uuid,
+        variant_currency: String,
+        order_currency: String,
+    },
+    DatabaseError(String),
+    CacheError(String),
 }
-
-impl std::fmt::Display for DomainError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NotFound(message) => write!(f, "Not found: {message}"),
-            Self::InvalidState(message) => write!(f, "Invalid state: {message}"),
-            Self::InsufficientStock(message) => write!(f, "Insufficient stock: {message}"),
-            Self::ValidationFailed(message) => write!(f, "Validation failed: {message}"),
-        }
-    }
-}
-
-impl std::error::Error for DomainError {}
