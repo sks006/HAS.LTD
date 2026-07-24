@@ -24,4 +24,9 @@ pub enum DomainError {
     },
     DatabaseError(String),
     CacheError(String),
+    Database(String),
+    Serialization(String),
+    IdempotencyCollision(String),
+    ConcurrencyConflict { message: String },
+    InvalidEnumValue(String),
 }

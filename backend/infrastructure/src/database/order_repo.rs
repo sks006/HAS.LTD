@@ -23,12 +23,114 @@ impl OrderRepository for PgOrderRepository {
         unimplemented!()
     }
 
-    async fn get_order_by_id(&self, _id: Uuid) -> Result<Option<Order>, DomainError> {
-        unimplemented!()
+    async fn get_order_by_id(&self, id: Uuid) -> Result<Option<Order>, DomainError> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, user_id, state, currency, shipping_address, billing_address, total_minor_units, version, idempotency_key, created_at, updated_at
+            FROM orders
+            WHERE id = $1
+            "#
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        if let Some(r) = row {
+            use sqlx::Row;
+            let shipping_val: Option<serde_json::Value> = r.get("shipping_address");
+            let billing_val: Option<serde_json::Value> = r.get("billing_address");
+            
+            let shipping_address = match shipping_val {
+                Some(v) => serde_json::from_value(v).map_err(|e| DomainError::Serialization(e.to_string()))?,
+                None => None,
+            };
+            let billing_address = match billing_val {
+                Some(v) => serde_json::from_value(v).map_err(|e| DomainError::Serialization(e.to_string()))?,
+                None => None,
+            };
+
+            let state_str: String = r.get("state");
+            let state = match state_str.as_str() {
+                "Pending" => OrderState::Pending,
+                "Reserved" => OrderState::Reserved,
+                "Paid" => OrderState::Paid,
+                "Shipped" => OrderState::Shipped,
+                "Cancelled" => OrderState::Cancelled,
+                _ => return Err(DomainError::Database(format!("Unknown order state: {}", state_str))),
+            };
+
+            Ok(Some(Order {
+                id: r.get("id"),
+                user_id: r.get("user_id"),
+                state,
+                currency: r.get("currency"),
+                shipping_address,
+                billing_address,
+                total_minor_units: r.get("total_minor_units"),
+                version: r.get("version"),
+                idempotency_key: r.get("idempotency_key"),
+                created_at: r.get("created_at"),
+                updated_at: r.get("updated_at"),
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
-    async fn get_order_by_idempotency_key(&self, _key: &str) -> Result<Option<Order>, DomainError> {
-        unimplemented!()
+    async fn get_order_by_idempotency_key(&self, key: &str) -> Result<Option<Order>, DomainError> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, user_id, state, currency, shipping_address, billing_address, total_minor_units, version, idempotency_key, created_at, updated_at
+            FROM orders
+            WHERE idempotency_key = $1
+            "#
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        if let Some(r) = row {
+            use sqlx::Row;
+            let shipping_val: Option<serde_json::Value> = r.get("shipping_address");
+            let billing_val: Option<serde_json::Value> = r.get("billing_address");
+            
+            let shipping_address = match shipping_val {
+                Some(v) => serde_json::from_value(v).map_err(|e| DomainError::Serialization(e.to_string()))?,
+                None => None,
+            };
+            let billing_address = match billing_val {
+                Some(v) => serde_json::from_value(v).map_err(|e| DomainError::Serialization(e.to_string()))?,
+                None => None,
+            };
+
+            let state_str: String = r.get("state");
+            let state = match state_str.as_str() {
+                "Pending" => OrderState::Pending,
+                "Reserved" => OrderState::Reserved,
+                "Paid" => OrderState::Paid,
+                "Shipped" => OrderState::Shipped,
+                "Cancelled" => OrderState::Cancelled,
+                _ => return Err(DomainError::Database(format!("Unknown order state: {}", state_str))),
+            };
+
+            Ok(Some(Order {
+                id: r.get("id"),
+                user_id: r.get("user_id"),
+                state,
+                currency: r.get("currency"),
+                shipping_address,
+                billing_address,
+                total_minor_units: r.get("total_minor_units"),
+                version: r.get("version"),
+                idempotency_key: r.get("idempotency_key"),
+                created_at: r.get("created_at"),
+                updated_at: r.get("updated_at"),
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn list_orders_by_user(

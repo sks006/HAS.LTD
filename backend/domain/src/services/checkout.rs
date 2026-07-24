@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use crate::errors::DomainError;
 use crate::models::order::{Order, OrderItem, OrderState, Address};
-use crate::models::inventory::{InventoryLedgerEntry, LedgerAction, InventoryStockSnapshot};
+use crate::models::inventory::{InventoryLedgerEntry, LedgerAction};
 use crate::repositories::{
     OrderRepository,
     InventoryRepository,
