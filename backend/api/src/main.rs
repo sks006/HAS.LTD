@@ -1,17 +1,15 @@
+mod dtos;
+mod errors;
 mod extractors;
 mod handlers;
 mod routes;
 mod state;
 
-use std::sync::Arc;
-
-use crate::{ routes::build_router, state::{ AppConfig, AppState } };
+use crate::{ routes::build_router, state::AppState };
 
 #[tokio::main]
 async fn main() {
-    let state = AppState {
-        config: Arc::new(AppConfig::default()),
-    };
+    let state = AppState::new().await.expect("Failed to initialize AppState");
 
     let app = build_router(state);
 
