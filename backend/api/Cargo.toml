@@ -17,6 +17,7 @@ sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "uuid"
 uuid = { version = "1.7", features = ["v4", "serde"] }
 domain = { path = "../domain" }
 infrastructure = { path = "../infrastructure" }
+chrono = "0.4.45"
 
 [features]
 default = []

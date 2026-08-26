@@ -1,19 +1,79 @@
 # backend/docker-compose.yml
-version: '3.8'
 
+# The Execution Topologies. 
+# Each block beneath this defines an isolated Linux namespace (PID, NET, IPC, MNT) 
+# and restricts CPU/Memory via cgroups.
 services:
-  postgres:
-    image: postgres:latest
-    container_name: has-postgres
+
+  # ---------------------------------------------------------------------------
+  # THE RELATIONAL SETTLEMENT MATRIX
+  # ---------------------------------------------------------------------------
+  has_ltd_postgres:
+    # STRUCTURAL WARNING: `latest` is highly dangerous in production. 
+    # It introduces a mutable execution state where underlying glibc or Postgres binaries 
+    # can change unexpectedly. For local compilation, it is acceptable. 
+    # Production mandates a strict cryptographic SHA256 image digest.
+    image: postgres:16
+    
+    # Bypasses the Docker daemon's randomized hex-string naming convention. 
+    # Essential for deterministic DNS resolution inside the internal Docker bridge network.
+    container_name: has_ltd
+    
+    # The Boot Sequence Ingress. 
+    # These variables are intercepted by the container's entrypoint script ONLY on the very 
+    # first boot to initialize the physical database files. 
+    # STRUCTURAL MANDATE: In your production Kubernetes cluster, this plaintext injection 
+    # is strictly forbidden. You will utilize encrypted Secrets injected directly into tmpfs (RAM).
     environment:
-      POSTGRES_USER: postgres
+      POSTGRES_USER: user
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: has_ltd
+      
+    # The TCP Port Binding. 
+    # Format: <HOST_INTERFACE>:<CONTAINER_NAMESPACE>. 
+    # This punches a hole through the isolated Docker bridge network, mapping your physical host's 
+    # port 5432 directly to the container's port 5432, allowing `sqlx` to establish socket connections.
     ports:
       - "5432:5432"
+      
+    # The Physical I/O Survival Boundary. 
+    # Without this mapping, Postgres writes its Write-Ahead Log (WAL) to the container's OverlayFS. 
+    # When the container stops, the OverlayFS is mathematically annihilated. 
+    # This mount maps the internal `/var/lib/postgresql/data` directly to a protected inode 
+    # on your host machine's physical disk.
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      
+    # The Daemon Control Flow. 
+    # If the Postgres process segfaults, OOM-crashes, or terminates, the Docker daemon 
+    # intercepts the exit code and automatically respawns the namespace, ensuring high availability.
     restart: unless-stopped
 
+  # ---------------------------------------------------------------------------
+  # THE HIGH-FREQUENCY MEMORY MATRIX
+  # ---------------------------------------------------------------------------
+  has_ltd_redis:
+    image: redis:latest
+    container_name: has_ltd_redis
+    
+    # TCP mapping for the single-threaded Redis event loop. 
+    # Your Axum extractors will bombard this port to verify JWT blacklists and Idempotency locks.
+    ports:
+      - "6379:6379"
+      
+    # The Snapshot Persistence. 
+    # Redis holds your system's network reliability state in RAM. By mounting this volume, 
+    # Redis can execute its background RDB (Redis Database) saves to physical disk, 
+    # preventing double-spend vulnerabilities if the container loses power.
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+# ---------------------------------------------------------------------------
+# PHYSICAL DISK ALLOCATIONS
+# ---------------------------------------------------------------------------
+# This block instructs the Docker volume driver to reserve permanent blocks 
+# on the host OS filesystem, completely detached from container lifecycles.
 volumes:
   postgres_data:
+  redis_data:
