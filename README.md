@@ -26,26 +26,76 @@ graph TD
 ## 📂 Directory Layout
 
 ```text
-.
 ├── Cargo.toml                  # Cargo workspace manifest
-├── Makefile                    # Task runner for development commands
-├── frontend/                   # React/Vite SPA project
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── src/
-└── backend/
-    ├── api/                    # HTTP Server ingress, JWT auth, Axum routes
-    │   ├── src/handlers/       # Catalog & Checkout HTTP handlers
-    │   ├── src/dtos.rs         # Input validation schemas
-    │   ├── src/extractors.rs   # JWT Guard & Idempotency Header middleware
-    │   └── src/state.rs        # AppState configuration
-    ├── domain/                 # Core entities, errors, repository port interfaces
-    │   ├── src/models/         # Order, Product, User domain models
-    │   ├── src/repositories/   # Repository trait contracts (ports)
-    │   └── src/services/       # Business workflows (e.g., checkout engine)
-    └── infrastructure/         # Physical implementations (database, cache)
-        ├── src/database/       # PG User, Product, Order repository adapters
-        └── src/cache/          # Redis Cache Adapter
+├── Makefile                    # Task runner for dev/build commands
+├── LICENSE                     # License terms
+├── README.md                   # Project documentation
+├── backend/                    # 🚀 Axum Backend Crate Workspace
+│   ├── .env                    # Backend environment config
+│   ├── docker-compose.yml      # Local services (Postgres, Redis)
+│   ├── api/                    # Ingress Layer (Axum web server)
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── main.rs         # Application entrypoint
+│   │       ├── routes.rs       # HTTP Router mapping paths to handlers
+│   │       ├── state.rs        # AppState sharing connections & repositories
+│   │       ├── dtos.rs         # Request/Response data contracts
+│   │       ├── extractors.rs   # Custom middleware (JWT auth, idempotency checks)
+│   │       ├── errors.rs       # HTTP status mapping for domain errors
+│   │       ├── handlers/       # Controllers executing checkout/catalog routes
+│   │       │   ├── catalog.rs
+│   │       │   └── checkout.rs
+│   │       └── bin/            # Executable scripts (e.g. seeding db/tokens)
+│   │           └── seed_and_token.rs
+│   ├── domain/                 # Domain Core Layer (No framework dependencies)
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── errors.rs       # Core application/domain errors
+│   │       ├── models/         # Business domain entities & aggregates
+│   │       │   ├── auth.rs
+│   │       │   ├── user.rs
+│   │       │   ├── product.rs
+│   │       │   ├── inventory.rs
+│   │       │   └── order.rs
+│   │       ├── repositories/   # Ports/Traits for caching & database operations
+│   │       │   ├── user_port.rs
+│   │       │   ├── product_port.rs
+│   │       │   ├── inventory_port.rs
+│   │       │   ├── order_port.rs
+│   │       │   ├── checkout_port.rs
+│   │       │   └── cache_port.rs
+│   │       └── services/       # Domain-driven orchestrators
+│   │           └── checkout.rs
+│   ├── infrastructure/         # Infrastructure Layer (External integration adapters)
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── database/       # Repository adapters backed by SQLx / PostgreSQL
+│   │       │   ├── connection.rs
+│   │       │   ├── user_repo.rs
+│   │       │   ├── product_repo.rs
+│   │       │   ├── inventory_repo.rs
+│   │       │   ├── order_repo.rs
+│   │       │   └── checkout_adapter.rs
+│   │       ├── cache/          # In-memory Redis repository implementations
+│   │       │   └── redis_adapter.rs
+│   │       └── redis/          # Additional Redis adapters
+│   │           └── cache_adapter.rs
+│   └── migrations/             # SQL database migration files
+└── frontend/                   # 💻 React + TypeScript Single Page Application (Vite)
+    ├── package.json            # Node scripts & project dependencies
+    ├── tsconfig.json           # TypeScript configuration
+    ├── vite.config.ts          # Vite configuration
+    ├── index.html              # HTML shell template
+    └── src/
+        ├── main.tsx            # Front-end mount & initialization
+        ├── admin/              # Admin Panel components, pages & hooks
+        ├── storefront/         # Customer storefront pages & components
+        ├── components/         # Common / global components
+        ├── hooks/              # Global React custom hooks
+        ├── api/                # Global API clients
+        └── shared/             # Shared state, utilities, and API layouts
 ```
 
 ---
