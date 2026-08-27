@@ -34,6 +34,7 @@ pub struct ProductFilters {
 /// The `async_trait` macro allows `async fn` in traits.
 /// `Send + Sync` ensures the repository can be shared across threads
 /// (required by web frameworks like Axum/Actix).
+
 #[async_trait]
 pub trait ProductRepository: Send + Sync {
     // ---- Product ----

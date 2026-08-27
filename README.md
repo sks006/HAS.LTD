@@ -26,76 +26,157 @@ graph TD
 ## 📂 Directory Layout
 
 ```text
-├── Cargo.toml                  # Cargo workspace manifest
-├── Makefile                    # Task runner for dev/build commands
-├── LICENSE                     # License terms
-├── README.md                   # Project documentation
-├── backend/                    # 🚀 Axum Backend Crate Workspace
-│   ├── .env                    # Backend environment config
-│   ├── docker-compose.yml      # Local services (Postgres, Redis)
-│   ├── api/                    # Ingress Layer (Axum web server)
+├── Cargo.toml                          # Workspace manifest coordinating backend crates
+├── Makefile                            # Build automation, migration runners, and security audits
+├── docker-compose.yml                  # Local network isolation for PostgreSQL, Redis, and LocalStack
+├── README.md                           # System invariants and deployment specifications
+│
+├── backend/                            # 🚀 Axum Backend Workspace
+│   ├── api/                            # INGRESS & TRANSPORT LAYER (Axum HTTP)
 │   │   ├── Cargo.toml
 │   │   └── src/
-│   │       ├── main.rs         # Application entrypoint
-│   │       ├── routes.rs       # HTTP Router mapping paths to handlers
-│   │       ├── state.rs        # AppState sharing connections & repositories
-│   │       ├── dtos.rs         # Request/Response data contracts
-│   │       ├── extractors.rs   # Custom middleware (JWT auth, idempotency checks)
-│   │       ├── errors.rs       # HTTP status mapping for domain errors
-│   │       ├── handlers/       # Controllers executing checkout/catalog routes
-│   │       │   ├── catalog.rs
-│   │       │   └── checkout.rs
-│   │       └── bin/            # Executable scripts (e.g. seeding db/tokens)
-│   │           └── seed_and_token.rs
-│   ├── domain/                 # Domain Core Layer (No framework dependencies)
-│   │   ├── Cargo.toml
-│   │   └── src/
-│   │       ├── lib.rs
-│   │       ├── errors.rs       # Core application/domain errors
-│   │       ├── models/         # Business domain entities & aggregates
-│   │       │   ├── auth.rs
-│   │       │   ├── user.rs
-│   │       │   ├── product.rs
-│   │       │   ├── inventory.rs
-│   │       │   └── order.rs
-│   │       ├── repositories/   # Ports/Traits for caching & database operations
-│   │       │   ├── user_port.rs
-│   │       │   ├── product_port.rs
-│   │       │   ├── inventory_port.rs
-│   │       │   ├── order_port.rs
-│   │       │   ├── checkout_port.rs
-│   │       │   └── cache_port.rs
-│   │       └── services/       # Domain-driven orchestrators
-│   │           └── checkout.rs
-│   ├── infrastructure/         # Infrastructure Layer (External integration adapters)
+│   │       ├── main.rs                 # Server bootstrap, signal trapping, graceful shutdown
+│   │       ├── routes.rs               # Route registration and middleware pipeline assembly
+│   │       ├── state.rs                # Shared AppState (database pools, cache, crypto adapters)
+│   │       ├── dtos/                   # Strict ingress validation boundaries
+│   │       │   ├── auth_dto.rs         # Login/Registration payloads (Zxcvbn-checked)
+│   │       │   ├── catalog_dto.rs      # Pagination, filtering, and sorting parameters
+│   │       │   ├── cart_dto.rs         # Item mutations and quantity deltas
+│   │       │   ├── checkout_dto.rs     # Shipping info, payment tokens, idempotency headers
+│   │       │   └── admin_dto.rs        # Product CRUD and inventory reconciliation payloads
+│   │       ├── middleware/             # DEFENSIVE SECURITY LAYER
+│   │       │   ├── rate_limiter.rs     # Redis-backed distributed token bucket
+│   │       │   ├── secure_headers.rs   # CSP, HSTS, X-Frame-Options, X-Content-Type-Options
+│   │       │   ├── cors.rs             # Strict origin, method, and credential whitelisting
+│   │       │   ├── auth_guard.rs       # JWT/PASETO extractor and claims validator
+│   │       │   ├── rbac.rs             # Role-Based Access Control (Customer vs. Admin)
+│   │       │   └── idempotency.rs      # Distributed lock preventing duplicate charges
+│   │       ├── handlers/               # Thin HTTP controllers (Delegates to domain services)
+│   │       │   ├── auth.rs             # Authentication lifecycle (Login, Refresh, Logout)
+│   │       │   ├── catalog.rs          # Public product exploration
+│   │       │   ├── cart.rs             # Cart state synchronization
+│   │       │   ├── checkout.rs         # Atomic order placement and transaction kickoff
+│   │       │   ├── admin.rs            # Protected administrative operations
+│   │       │   └── webhooks.rs         # Payment gateway cryptographic signature verification
+│   │       └── errors.rs               # RFC 7807 Problem Details HTTP error mapper
+│   │
+│   ├── domain/                         # BUSINESS DOMAIN LAYER (Zero Framework Dependencies)
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── database/       # Repository adapters backed by SQLx / PostgreSQL
-│   │       │   ├── connection.rs
-│   │       │   ├── user_repo.rs
-│   │       │   ├── product_repo.rs
-│   │       │   ├── inventory_repo.rs
-│   │       │   ├── order_repo.rs
-│   │       │   └── checkout_adapter.rs
-│   │       ├── cache/          # In-memory Redis repository implementations
-│   │       │   └── redis_adapter.rs
-│   │       └── redis/          # Additional Redis adapters
-│   │           └── cache_adapter.rs
-│   └── migrations/             # SQL database migration files
-└── frontend/                   # 💻 React + TypeScript Single Page Application (Vite)
-    ├── package.json            # Node scripts & project dependencies
-    ├── tsconfig.json           # TypeScript configuration
-    ├── vite.config.ts          # Vite configuration
-    ├── index.html              # HTML shell template
-    └── src/
-        ├── main.tsx            # Front-end mount & initialization
-        ├── admin/              # Admin Panel components, pages & hooks
-        ├── storefront/         # Customer storefront pages & components
-        ├── components/         # Common / global components
-        ├── hooks/              # Global React custom hooks
-        ├── api/                # Global API clients
-        └── shared/             # Shared state, utilities, and API layouts
+│   │       ├── errors.rs               # Strongly typed domain-level business errors
+│   │       ├── models/                 # Pure domain entities, value objects, and aggregates
+│   │       │   ├── user.rs             # User aggregate, PasswordHash, Email value objects
+│   │       │   ├── role.rs             # RBAC permissions and identity claims
+│   │       │   ├── product.rs          # Product aggregate, Money value object, SKU
+│   │       │   ├── inventory.rs        # Stock reserve entities and allocation locks
+│   │       │   ├── cart.rs             # Ephemeral cart calculations and tax boundaries
+│   │       │   ├── order.rs            # Order state machine (Pending, Paid, Shipped, Cancelled)
+│   │       │   └── payment.rs          # Payment Intent, Settlement proofs, and Transaction IDs
+│   │       ├── repositories/           # Ports/Abstract Trait boundaries
+│   │       │   ├── user_port.rs        # User identity storage contract
+│   │       │   ├── product_port.rs     # Catalog retrieval contract
+│   │       │   ├── inventory_port.rs   # Row-level stock reservation contract
+│   │       │   ├── order_port.rs       # Atomic transactional persistence contract
+│   │       │   ├── cache_port.rs       # Ephemeral key-value cache contract
+│   │       │   ├── storage_port.rs     # Direct S3 object streaming contract
+│   │       │   ├── hasher_port.rs      # Password hashing interface (Argon2id)
+│   │       │   └── payment_port.rs     # Payment gateway communication interface
+│   │       └── services/               # Domain-driven business orchestrators
+│   │           ├── auth_service.rs     # Session verification and credential checks
+│   │           ├── checkout_service.rs # Distributed inventory reservation & payment orchestration
+│   │           └── catalog_service.rs  # Business logic for dynamic pricing and discounts
+│   │
+│   ├── infrastructure/                 # ADAPTER & INTEGRATION LAYER
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── lib.rs
+│   │       ├── database/               # PostgreSQL adapters via SQLx (Connection pooling)
+│   │       │   ├── connection.rs       # Pool initialization with retry policies & SSL mode
+│   │       │   ├── user_repo.rs        # SQL implementation for user management
+│   │       │   ├── product_repo.rs     # Read-optimized catalog queries
+│   │       │   ├── inventory_repo.rs   # Pessimistic locking (SELECT FOR UPDATE) queries
+│   │       │   └── order_repo.rs       # Multi-table atomic transactional operations
+│   │       ├── cache/                  # Redis adapters
+│   │       │   ├── redis_pool.rs       # Redis multiplexed connection manager
+│   │       │   ├── session_adapter.rs  # Blacklist and refresh token storage
+│   │       │   └── lock_adapter.rs     # Redlock/atomic SET NX distributed locks
+│   │       ├── security/               # Cryptographic security adapters
+│   │       │   ├── argon2_hasher.rs    # PHC string formatting and salt generation
+│   │       │   └── token_provider.rs   # Ed25519 signing / asymmetric JWT verification
+│   │       ├── storage/                # Cloud storage integration
+│   │       │   └── s3_adapter.rs       # Zero-copy chunked stream pipe to S3/Cloudflare R2
+│   │       └── payment/                # Payment processor integration
+│   │           └── gateway_adapter.rs  # Secure HMAC-SHA256 signature verification
+│   │
+│   └── migrations/                     # SQLx migration scripts (Schema definitions, constraints, indexes)
+│
+frontend/
+├── package.json
+├── tsconfig.json
+├── vite.config.ts                      # Strict proxy routing to Axum to bypass CORS in dev
+├── index.html
+└── src/
+    ├── main.tsx                        # DOM mount, strict mode, and global error boundary catch
+    │
+    ├── app/                            # LAYER 1: APP INITIALIZATION
+    │   ├── router.tsx                  # Global route definitions (React Router)
+    │   └── providers/                  # Context wrappers (Theme, React Query, Auth)
+    │       ├── AuthProvider.tsx
+    │       └── QueryClientProvider.tsx
+    │
+    ├── shared/                         # LAYER 2: CROSS-DOMAIN INFRASTRUCTURE
+    │   ├── api/                        # Axios/Fetch network interceptors
+    │   │   ├── client.ts               # Injects JWT Bearer tokens into headers automatically
+    │   │   └── endpoints.ts            # Hardcoded route strings
+    │   ├── types/                      # Exact TypeScript mappings of your Rust DTOs
+    │   │   ├── contracts.ts            # ProductDto, OrderDto, Uuid
+    │   │   └── roles.ts                # 'SUPER_ADMIN' | 'MODERATOR' | 'CUSTOMER'
+    │   ├── store/                      # Global Zustand primitive orchestrators
+    │   │   └── store.ts                # Binds isolated slices together
+    │   └── ui/                         # Dumb, stateless, highly reusable components
+    │       ├── Button.tsx
+    │       ├── Modal.tsx
+    │       └── Table.tsx
+    │
+    ├── features/                       # LAYER 3: ISOLATED BUSINESS DOMAINS
+    │   ├── auth/
+    │   │   ├── api/                    # Login, Refresh, Logout mutations
+    │   │   ├── store/                  # Zustand: authSlice (JWT, Role, UserID)
+    │   │   ├── components/             # LoginForm, RegisterForm
+    │   │   └── guards/                 # RBAC enforcement wrappers
+    │   │       ├── RequireAdmin.tsx    # Blocks Moderator & Customer
+    │   │       ├── RequireModerator.tsx# Blocks Customer (Allows Admin/Moderator)
+    │   │       └── RequireAuth.tsx     # Blocks unauthenticated traffic
+    │   │
+    │   ├── catalog/                    # Public browsing (Customer & Guest)
+    │   │   ├── api/                    # fetchProducts, fetchProductById
+    │   │   ├── store/                  # Zustand: catalogSlice (Active filters, search query)
+    │   │   └── components/             # ProductGrid, FilterSidebar, 3DViewerFallback
+    │   │
+    │   ├── cart_checkout/              # Ephemeral state & OCC processing
+    │   │   ├── api/                    # syncCart, submitOrder (with idempotency_key)
+    │   │   ├── store/                  # Zustand: cartSlice (Optimistic UI updates)
+    │   │   └── components/             # CartDrawer, PaymentGatewayForm
+    │   │
+    │   ├── moderation/                 # Moderator access zone
+    │   │   ├── api/                    # fetchAssignedOrders, toggleProductStatus
+    │   │   └── components/             # OrderAuditQueue, ProductReviewTable
+    │   │
+    │   └── admin/                      # God-mode operational zone
+    │       ├── api/                    # deleteRole, modifyInventory, systemMetrics
+    │       └── components/             # AccessControlMatrix, GlobalRevenueDashboard
+    │
+    └── pages/                          # LAYER 4: ROUTE ASSEMBLIES
+        ├── storefront/
+        │   ├── Home.tsx                # Composes features/catalog components
+        │   ├── ProductDetail.tsx
+        │   └── Checkout.tsx
+        ├── dashboard/
+        │   ├── ModeratorPanel.tsx      # Wrapped in <RequireModerator>
+        │   └── SystemGodMode.tsx       # Wrapped in <RequireAdmin>
+        └── auth/
+            └── Login.tsx
 ```
 
 ---

@@ -5,7 +5,7 @@ use validator::Validate;
 use crate::{
     dtos::CheckoutRequestDto,
     errors::ApiError,
-    extractors::{ AuthExtractor, IdempotencyExtractor },
+    middleware::{ RequireCustomer, IdempotencyExtractor },
     state::AppState,
 };
 
@@ -25,7 +25,7 @@ pub struct CheckoutResponse {
 
 pub async fn checkout(
     State(state): State<AppState>,
-    AuthExtractor(auth): AuthExtractor,
+    RequireCustomer(auth): RequireCustomer,
     IdempotencyExtractor(idempotency_key): IdempotencyExtractor,
     Json(payload): Json<CheckoutRequestDto>,
 ) -> Result<Json<CheckoutResponse>, ApiError> {

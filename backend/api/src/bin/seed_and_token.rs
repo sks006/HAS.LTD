@@ -109,11 +109,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &EncodingKey::from_secret(jwt_secret.as_bytes())
     )?;
 
-    println!("\n=== Generated Test JWT ===");
-    println!("{}", token);
-    println!("==========================\n");
+    // 5b. Seed a test Moderator
+    let moderator_id = Uuid::new_v4();
+    let mod_email = format!("test-mod-{}@has.ltd", Uuid::new_v4().to_string()[..8].to_string());
+    sqlx::query(
+        r#"
+        INSERT INTO users (id, email, password_hash, name, role, is_active, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+        "#
+    )
+    .bind(moderator_id)
+    .bind(&mod_email)
+    .bind("$2b$12$L7R2b1pG8/1QvB1.k2qgOeW7qG8Jc.h2b.i1d1e1f1g1h1i1j1k1l")
+    .bind("Test Moderator")
+    .bind("Moderator")
+    .bind(true)
+    .execute(&pool)
+    .await?;
+    println!("Created moderator ID: {}", moderator_id);
 
-    println!("Run the following checkout command:");
+    // 5c. Generate a Moderator JWT
+    let mod_claims = JwtClaims {
+        sub: moderator_id,
+        role: UserRole::Moderator,
+        jti: Uuid::new_v4(),
+        iat,
+        exp,
+    };
+    let mod_token = encode(
+        &Header::default(),
+        &mod_claims,
+        &EncodingKey::from_secret(jwt_secret.as_bytes())
+    )?;
+
+    println!("\n=== Generated Test Customer JWT ===");
+    println!("{}", token);
+    println!("====================================\n");
+
+    println!("\n=== Generated Test Moderator JWT ===");
+    println!("{}", mod_token);
+    println!("====================================\n");
+
+    println!("Run the following checkout command (as Customer):");
     println!(
         "curl -X POST http://127.0.0.1:3000/checkout \\\n  \
         -H \"Content-Type: application/json\" \\\n  \
@@ -141,5 +178,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         variant_id
     );
 
+    println!("\nRun the following to view order details (as Moderator, replace <ORDER_ID>):");
+    println!(
+        "curl -X GET http://127.0.0.1:3000/orders/<ORDER_ID> \\\n  \
+        -H \"Authorization: Bearer {}\"",
+        mod_token
+    );
+
+    println!("\nRun the following to update order status (as Moderator, replace <ORDER_ID> and verify/increment version):");
+    println!(
+        "curl -X PUT http://127.0.0.1:3000/orders/<ORDER_ID>/status \\\n  \
+        -H \"Content-Type: application/json\" \\\n  \
+        -H \"Authorization: Bearer {}\" \\\n  \
+        -d '{{\n    \
+          \"state\": \"Paid\",\n    \
+          \"version\": 1\n  \
+        }}'",
+        mod_token
+    );
+
     Ok(())
 }
+
