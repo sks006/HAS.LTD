@@ -15,7 +15,7 @@ fn user_role_to_str(role: &UserRole) -> &'static str {
     match role {
         UserRole::Customer => "Customer",
         UserRole::Admin => "Admin",
-        UserRole::SuperAdmin => "SuperAdmin",
+        UserRole::Moderator => "Moderator",
     }
 }
 
@@ -23,7 +23,7 @@ fn str_to_user_role(role_str: &str) -> Result<UserRole, DomainError> {
     match role_str {
         "Customer" => Ok(UserRole::Customer),
         "Admin" => Ok(UserRole::Admin),
-        "SuperAdmin" => Ok(UserRole::SuperAdmin),
+        "Moderator" => Ok(UserRole::Moderator),
         _ => Err(DomainError::InvalidEnumValue(format!("Unknown user role: {}", role_str))),
     }
 }

@@ -18,6 +18,7 @@ uuid = { version = "1.7", features = ["v4", "serde"] }
 domain = { path = "../domain" }
 infrastructure = { path = "../infrastructure" }
 chrono = "0.4.45"
+tracing = "0.1"
 
 [features]
 default = []

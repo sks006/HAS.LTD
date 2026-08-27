@@ -1,9 +1,9 @@
-mod dtos;
-mod errors;
-mod extractors;
-mod handlers;
-mod routes;
-mod state;
+pub(crate) mod dtos;
+pub(crate) mod errors;
+pub(crate) mod middleware;
+pub(crate) mod handlers;
+pub(crate) mod routes;
+pub(crate) mod state;
 
 use crate::{ routes::build_router, state::AppState };
 

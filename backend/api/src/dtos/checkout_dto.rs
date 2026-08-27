@@ -1,5 +1,3 @@
-// backend/api/src/dtos.rs
-
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 use uuid::Uuid;
@@ -59,4 +57,11 @@ fn validate_items(items: &[CheckoutItemDto]) -> Result<(), validator::Validation
         return Err(validator::ValidationError::new("items_empty"));
     }
     Ok(())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+pub struct UpdateOrderStatusDto {
+    #[validate(length(min = 1, message = "State cannot be empty"))]
+    pub state: String,
+    pub version: i32,
 }

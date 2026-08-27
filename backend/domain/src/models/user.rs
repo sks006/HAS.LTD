@@ -7,7 +7,7 @@ use uuid::Uuid;
 pub enum UserRole {
     Customer,
     Admin,
-    SuperAdmin, // Required for system-level overrides
+    Moderator, // only for store manager 
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

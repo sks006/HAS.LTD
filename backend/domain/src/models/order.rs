@@ -51,5 +51,5 @@ pub struct Address {
     pub state: Option<String>,
     pub postal_code: String,
     pub country: String,
-     pub delivery_instructions: Option<String>,  // restored
+    pub delivery_instructions: Option<String>,  // restored
 }
