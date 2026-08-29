@@ -2,7 +2,7 @@ use axum::{ routing::{ get, post, put }, Router };
 
 use crate::{
     handlers::{
-        catalog::list_products,
+        catalog::{list_products, get_product},
         checkout::checkout,
         order::{get_order, update_order_status},
         auth::{login, register, logout},
@@ -20,6 +20,7 @@ pub fn build_router(state: AppState) -> Router {
             get(|| async { "ok" })
         )
         .route("/products", get(list_products))
+        .route("/products/{id}", get(get_product))
         .route("/checkout", post(checkout))
         .route("/orders/{id}", get(get_order))
         .route("/orders/{id}/status", put(update_order_status))

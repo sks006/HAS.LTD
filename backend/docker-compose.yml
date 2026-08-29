@@ -26,8 +26,8 @@ services:
     # is strictly forbidden. You will utilize encrypted Secrets injected directly into tmpfs (RAM).
     environment:
       POSTGRES_USER: user
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: has_ltd
+      POSTGRES_PASSWORD: test123
+      POSTGRES_DB: has
       
     # The TCP Port Binding. 
     # Format: <HOST_INTERFACE>:<CONTAINER_NAMESPACE>. 
