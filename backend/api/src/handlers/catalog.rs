@@ -1,8 +1,11 @@
-use axum::{ extract::State, http::StatusCode, Json };
+use axum::{ extract::{State, Path}, http::StatusCode, Json };
 use serde::Serialize;
+use uuid::Uuid;
 use crate::state::AppState;
+use crate::errors::ApiError;
 use domain::repositories::{ProductRepository, ProductFilters, ProductPagination};
 use infrastructure::database::product_repo::PgProductRepository;
+
 
 #[derive(Serialize)]
 pub struct ProductResponse {
@@ -43,3 +46,22 @@ pub async fn list_products(State(state): State<AppState>) -> Result<
 
     Ok(Json(response))
 }
+
+pub async fn get_product(
+    State(state): State<AppState>,
+    Path(product_id): Path<Uuid>,
+) -> Result<Json<ProductResponse>, ApiError> {
+    let product_repo = PgProductRepository::new(state.db_pool.clone());
+    let product = product_repo.get_product_by_id(product_id).await?
+        .ok_or_else(|| ApiError::NotFound("Product not found".to_string()))?;
+
+    let variants = product_repo.list_variants_for_product(product.id).await?;
+    let price_cents = variants.first().map(|v| v.price_minor_units as i64).unwrap_or(0);
+
+    Ok(Json(ProductResponse {
+        id: product.id.to_string(),
+        name: product.name,
+        price_cents,
+    }))
+}
+

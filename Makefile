@@ -6,10 +6,11 @@ setup:
 	@echo "Project scaffold created"
 
 frontend:
-	cd frontend && npm install && npm run dev
+	./scripts/dev.sh frontend
 
 backend:
-	cd backend && cargo run -p api --bin api
+	./scripts/dev.sh backend
 
 dev:
-	@echo "Run 'make frontend' and 'make backend' in separate terminals"
+	./scripts/dev.sh all
+
