@@ -1,6 +1,6 @@
 # HAS.LTD Enterprise Scaffold
 
-HAS.LTD is a production-grade full-stack boilerplate combining a **Rust** backend with a **React/Vite** frontend. It leverages clean architectural principles, domain-driven design (DDD), and transaction-safe database patterns (such as Optimistic Concurrency Control and Idempotent execution).
+HAS.LTD is a production-grade full-stack combining a **Rust** backend with a **React/Vite** frontend. It leverages clean architectural principles, domain-driven design (DDD), and transaction-safe database patterns (such as Optimistic Concurrency Control and Idempotent execution).
 
 ---
 
