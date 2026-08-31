@@ -10,6 +10,7 @@ use uuid::Uuid;                 // Universally unique identifiers for entity IDs
 use crate::errors::DomainError; // Central error type for all domain failures
 use crate::models::product::{Product, ProductVariant, ProductReview};
 
+
 // ---------- Query DTOs ----------
 
 /// Pagination parameters for list endpoints.
@@ -88,6 +89,9 @@ pub trait ProductRepository: Send + Sync {
 
     /// List all variants for a given product (e.g., for size/colour selectors).
     async fn list_variants_for_product(&self, product_id: Uuid) -> Result<Vec<ProductVariant>, DomainError>;
+
+    /// Fetch all variants for multiple product IDs.
+    async fn get_variants_by_product_ids(&self, product_ids: &[Uuid]) -> Result<Vec<ProductVariant>, DomainError>;
 
     /// Update a variant (price, attributes, currency, etc.).
     async fn update_variant(&self, variant: ProductVariant) -> Result<ProductVariant, DomainError>;

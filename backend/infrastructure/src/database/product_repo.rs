@@ -25,14 +25,15 @@ impl ProductRepository for PgProductRepository {
 
         sqlx::query(
             r#"
-            INSERT INTO products (id, category_id, slug, name, fabric_type, season, description, images, featured_video_url, discount, aggregate_rating, is_active, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            INSERT INTO products (id, category_id, slug, name, price, fabric_type, season, description, images, featured_video_url, discount, aggregate_rating, is_active, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
             "#
         )
         .bind(product.id)
         .bind(product.category_id)
         .bind(&product.slug)
         .bind(&product.name)
+        .bind(&product.price)
         .bind(&product.fabric_type)
         .bind(&product.season)
         .bind(&product.description)
@@ -53,7 +54,7 @@ impl ProductRepository for PgProductRepository {
     async fn get_product_by_id(&self, id: Uuid) -> Result<Option<Product>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, category_id, slug, name, fabric_type, season, description, images, featured_video_url, discount, aggregate_rating, is_active, created_at, updated_at
+            SELECT id, category_id, slug, name, price, fabric_type, season, description, images, featured_video_url, discount, aggregate_rating, is_active, created_at, updated_at
             FROM products
             WHERE id = $1
             "#
@@ -73,6 +74,7 @@ impl ProductRepository for PgProductRepository {
 
             Ok(Some(Product {
                 id: r.get("id"),
+                price: r.get("price"),
                 category_id: r.get("category_id"),
                 slug: r.get("slug"),
                 name: r.get("name"),
@@ -95,7 +97,7 @@ impl ProductRepository for PgProductRepository {
     async fn get_product_by_slug(&self, slug: &str) -> Result<Option<Product>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, category_id, slug, name, fabric_type, season, description, images, featured_video_url, discount, aggregate_rating, is_active, created_at, updated_at
+            SELECT id, category_id, slug, name, price, fabric_type, season, description, images, featured_video_url, discount, aggregate_rating, is_active, created_at, updated_at
             FROM products
             WHERE slug = $1
             "#
@@ -118,6 +120,7 @@ impl ProductRepository for PgProductRepository {
                 category_id: r.get("category_id"),
                 slug: r.get("slug"),
                 name: r.get("name"),
+                price: r.get("price"),
                 fabric_type: r.get("fabric_type"),
                 season: r.get("season"),
                 description: r.get("description"),
@@ -140,7 +143,7 @@ impl ProductRepository for PgProductRepository {
         pagination: ProductPagination,
     ) -> Result<Vec<Product>, DomainError> {
         let mut query_builder = sqlx::QueryBuilder::<sqlx::Postgres>::new(
-            "SELECT id, category_id, slug, name, fabric_type, season, description, images, featured_video_url, discount, aggregate_rating, is_active, created_at, updated_at FROM products WHERE 1=1"
+            "SELECT id, category_id, slug, name, price, fabric_type, season, description, images, featured_video_url, discount, aggregate_rating, is_active, created_at, updated_at FROM products WHERE 1=1"
         );
 
         if let Some(cat_id) = filters.category_id {
@@ -184,6 +187,7 @@ impl ProductRepository for PgProductRepository {
                 discount,
                 aggregate_rating: r.get("aggregate_rating"),
                 is_active: r.get("is_active"),
+                price: r.get("price"),
                 created_at: r.get("created_at"),
                 updated_at: r.get("updated_at"),
             });
@@ -199,8 +203,8 @@ impl ProductRepository for PgProductRepository {
         let rows_affected = sqlx::query(
             r#"
             UPDATE products
-            SET category_id = $1, slug = $2, name = $3, fabric_type = $4, season = $5, description = $6, images = $7, featured_video_url = $8, discount = $9, aggregate_rating = $10, is_active = $11, updated_at = NOW()
-            WHERE id = $12
+            SET category_id = $1, slug = $2, name = $3, fabric_type = $4, season = $5, description = $6, images = $7, featured_video_url = $8, discount = $9, aggregate_rating = $10, is_active = $11, price = $12, updated_at = NOW()
+            WHERE id = $13
             "#
         )
         .bind(product.category_id)
@@ -214,6 +218,7 @@ impl ProductRepository for PgProductRepository {
         .bind(discount_json)
         .bind(product.aggregate_rating)
         .bind(product.is_active)
+        .bind(&product.price)
         .bind(product.id)
         .execute(&self.pool)
         .await
@@ -254,7 +259,7 @@ impl ProductRepository for PgProductRepository {
 
         let rows = sqlx::query(
             r#"
-            SELECT id, category_id, slug, name, fabric_type, season, description, images, featured_video_url, discount, aggregate_rating, is_active, created_at, updated_at
+            SELECT id, category_id, slug, name, price, fabric_type, season, description, images, featured_video_url, discount, aggregate_rating, is_active, created_at, updated_at
             FROM products
             WHERE id = ANY($1)
             "#
@@ -278,6 +283,7 @@ impl ProductRepository for PgProductRepository {
                 category_id: r.get("category_id"),
                 slug: r.get("slug"),
                 name: r.get("name"),
+                price: r.get("price"),
                 fabric_type: r.get("fabric_type"),
                 season: r.get("season"),
                 description: r.get("description"),
@@ -393,6 +399,41 @@ impl ProductRepository for PgProductRepository {
             "#
         )
         .bind(product_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        let mut variants = Vec::with_capacity(rows.len());
+        for r in rows {
+            use sqlx::Row;
+            variants.push(ProductVariant {
+                id: r.get("id"),
+                product_id: r.get("product_id"),
+                sku: r.get("sku"),
+                price_minor_units: r.get("price_minor_units"),
+                currency: r.get("currency"),
+                is_active: r.get("is_active"),
+                attributes: r.get("attributes"),
+                created_at: r.get("created_at"),
+                updated_at: r.get("updated_at"),
+            });
+        }
+        Ok(variants)
+    }
+
+    async fn get_variants_by_product_ids(&self, product_ids: &[Uuid]) -> Result<Vec<ProductVariant>, DomainError> {
+        if product_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let rows = sqlx::query(
+            r#"
+            SELECT id, product_id, sku, price_minor_units, currency, is_active, attributes, created_at, updated_at
+            FROM product_variants
+            WHERE product_id = ANY($1)
+            "#
+        )
+        .bind(product_ids)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| DomainError::Database(e.to_string()))?;
