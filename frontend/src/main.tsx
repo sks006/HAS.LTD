@@ -47,7 +47,6 @@ class GlobalErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySta
         </div>
       );
     }
-
     return this.props.children;
   }
 }
