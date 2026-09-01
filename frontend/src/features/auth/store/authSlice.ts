@@ -1,27 +1,11 @@
-import { create } from 'zustand';
+import { useStore } from '@/shared/store/store';
+import type { Role } from '@/shared/types/roles';
+import type { AuthUser } from '@/shared/types/contracts';
 
-interface AuthState {
-  token: string | null;
-  role: 'SUPER_ADMIN' | 'MODERATOR' | 'CUSTOMER' | null;
-  setAuth: (token: string | null, role: 'SUPER_ADMIN' | 'MODERATOR' | 'CUSTOMER' | null) => void;
-  clearAuth: () => void;
-}
-
-export const useAuthStore = create<AuthState>((set) => ({
-  token: localStorage.getItem('token'),
-  role: localStorage.getItem('role') as any,
-  setAuth: (token, role) => {
-    if (token) localStorage.setItem('token', token);
-    else localStorage.removeItem('token');
-    
-    if (role) localStorage.setItem('role', role);
-    else localStorage.removeItem('role');
-    
-    set({ token, role });
-  },
-  clearAuth: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('role');
-    set({ token: null, role: null });
-  },
-}));
+export const authSlice = {
+  get user(): AuthUser | null { return useStore.getState().user; },
+  get token(): string | null { return useStore.getState().token; },
+  setAuth: (user: AuthUser | null, token: string | null) => useStore.getState().setAuth(user, token),
+  setRole: (role: Role) => useStore.getState().setRole(role),
+  logout: () => useStore.getState().logout(),
+};

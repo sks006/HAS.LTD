@@ -1,12 +1,15 @@
-export const API_ENDPOINTS = {
-  login: '/auth/login',
-  register: '/auth/register',
-  logout: '/auth/logout',
-  products: '/products',
-  checkout: '/checkout',
-  orders: (id: string) => `/orders/${id}`,
-  orderStatus: (id: string) => `/orders/${id}/status`,
-  inventory: '/admin/inventory',
-  metrics: '/admin/metrics',
-  syncCart: '/cart/sync',
-};
+export const ENDPOINTS = {
+  LOGIN: '/auth/login',
+  REGISTER: '/auth/register',
+  REFRESH: '/auth/refresh',
+  LOGOUT: '/auth/logout',
+  PRODUCTS: '/products',
+  PRODUCT_BY_ID: (id: string) => `/products/${id}`,
+  CART_SYNC: '/cart/sync',
+  ORDERS: '/orders',
+  ORDER_BY_ID: (id: string) => `/orders/${id}`,
+  INVENTORY: '/inventory',
+  MODERATION_ORDERS: '/moderation/orders',
+  ADMIN_METRICS: '/admin/metrics',
+  ADMIN_INVENTORY: '/admin/inventory',
+} as const;

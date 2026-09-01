@@ -1,45 +1,44 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect } from 'react';
+import { useRootStore } from '@/slicers/root_store';
+import type { Role } from '@/shared/types/roles';
 
 interface AuthContextType {
   token: string | null;
-  role: 'SUPER_ADMIN' | 'MODERATOR' | 'CUSTOMER' | null;
-  login: (token: string, role: 'SUPER_ADMIN' | 'MODERATOR' | 'CUSTOMER') => void;
+  role: Role | null;
+  isAuthenticated: boolean;
   logout: () => void;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType>({
+  token: null,
+  role: null,
+  isAuthenticated: false,
+  logout: () => {},
+});
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  const [role, setRole] = useState<'SUPER_ADMIN' | 'MODERATOR' | 'CUSTOMER' | null>(
-    localStorage.getItem('role') as any
-  );
+export const useAuth = () => useContext(AuthContext);
 
-  const login = (newToken: string, newRole: 'SUPER_ADMIN' | 'MODERATOR' | 'CUSTOMER') => {
-    localStorage.setItem('token', newToken);
-    localStorage.setItem('role', newRole);
-    setToken(newToken);
-    setRole(newRole);
-  };
-
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('role');
-    setToken(null);
-    setRole(null);
-  };
-
-  return (
-    <AuthContext.Provider value={{ token, role, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+interface AuthProviderProps {
+  children: React.ReactNode;
 }
 
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-}
+export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+  const token = useRootStore((s) => s.token);
+  const role = useRootStore((s) => s.user?.role ?? null);
+  const logout = useRootStore((s) => s.logout);
+
+  useEffect(() => {
+    // Optionally validate token or listen for auth events here
+  }, [token]);
+
+  const value: AuthContextType = {
+    token,
+    role,
+    isAuthenticated: Boolean(token),
+    logout,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+};
+
+export default AuthProvider;

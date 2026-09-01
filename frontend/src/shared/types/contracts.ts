@@ -1,33 +1,51 @@
-import { UserRole } from './roles';
+import type { Role } from './roles';
 
-export interface ProductDto {
-  id: string;
+export type Uuid = string;
+
+export type ProductDto = {
+  id: Uuid;
   name: string;
-  price_cents: number;
-}
-
-export interface AddressDto {
-  recipient_name: string;
-  phone: string;
-  street_line1: string;
-  street_line2?: string;
-  city: string;
-  state?: string;
-  postal_code: string;
-  country: string;
-  delivery_instructions?: string;
-}
-
-export interface CheckoutItemDto {
-  variant_id: string;
-  quantity: number;
-}
-
-export interface OrderDto {
-  id: string;
-  user_id: string | null;
-  state: 'Pending' | 'Reserved' | 'Paid' | 'Shipped' | 'Cancelled';
+  category: string;
+  price: number;
   currency: string;
-  total_minor_units: number;
-  version: number;
-}
+  image: string;
+  alt: string;
+  sale: boolean;
+  rating: number;
+  reviews: number;
+};
+
+export type InventoryItemDto = {
+  id: Uuid;
+  name: string;
+  category: string;
+  sku: string;
+  incoming: number;
+  stock: number;
+  price: number;
+  currency: string;
+  status: 'In stock' | 'Low stock' | 'Out of stock';
+};
+
+export type OrderItemDto = {
+  productId: Uuid;
+  name: string;
+  quantity: number;
+  price: number;
+};
+
+export type OrderDto = {
+  id: Uuid;
+  items: OrderItemDto[];
+  total: number;
+  currency: string;
+  status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'refunded';
+  createdAt: string;
+  customerId?: Uuid;
+};
+
+export type AuthUser = {
+  id: Uuid;
+  email: string;
+  role: Role;
+};

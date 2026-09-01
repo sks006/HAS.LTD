@@ -114,64 +114,61 @@ graph TD
 frontend/
 ├── package.json
 ├── tsconfig.json
-├── vite.config.ts                      # Strict proxy routing to Axum to bypass CORS in dev
+├── vite.config.ts                      # Strict proxy routing to Axum to bypass CORS
 ├── index.html
 └── src/
-    ├── main.tsx                        # DOM mount, strict mode, and global error boundary catch
+    ├── main.tsx                        # DOM mount and global error boundary
     │
     ├── app/                            # LAYER 1: APP INITIALIZATION
-    │   ├── router.tsx                  # Global route definitions (React Router)
-    │   └── providers/                  # Context wrappers (Theme, React Query, Auth)
-    │       ├── AuthProvider.tsx
-    │       └── QueryClientProvider.tsx
+    │   ├── router.tsx                  # Global route definitions
+    │   └── providers/                  # Context wrappers (Theme, React Query)
     │
     ├── shared/                         # LAYER 2: CROSS-DOMAIN INFRASTRUCTURE
-    │   ├── api/                        # Axios/Fetch network interceptors
-    │   │   ├── client.ts               # Injects JWT Bearer tokens into headers automatically
-    │   │   └── endpoints.ts            # Hardcoded route strings
-    │   ├── types/                      # Exact TypeScript mappings of your Rust DTOs
+    │   ├── api/                        # Core network interceptors (Axios/Fetch)
+    │   │   ├── client.ts               # Injects JWT Bearer tokens automatically
+    │   │   └── endpoints.ts            # Immutable API endpoint registry
+    │   ├── types/                      # Exact TypeScript mappings of Rust DTOs
     │   │   ├── contracts.ts            # ProductDto, OrderDto, Uuid
     │   │   └── roles.ts                # 'SUPER_ADMIN' | 'MODERATOR' | 'CUSTOMER'
-    │   ├── store/                      # Global Zustand primitive orchestrators
-    │   │   └── store.ts                # Binds isolated slices together
-    │   └── ui/                         # Dumb, stateless, highly reusable components
-    │       ├── Button.tsx
-    │       ├── Modal.tsx
-    │       └── Table.tsx
+    │   └── ui/                         # Dumb, stateless components (Button, Modal, Table)
     │
-    ├── features/                       # LAYER 3: ISOLATED BUSINESS DOMAINS
-    │   ├── auth/
-    │   │   ├── api/                    # Login, Refresh, Logout mutations
-    │   │   ├── store/                  # Zustand: authSlice (JWT, Role, UserID)
-    │   │   ├── components/             # LoginForm, RegisterForm
-    │   │   └── guards/                 # RBAC enforcement wrappers
-    │   │       ├── RequireAdmin.tsx    # Blocks Moderator & Customer
-    │   │       ├── RequireModerator.tsx# Blocks Customer (Allows Admin/Moderator)
-    │   │       └── RequireAuth.tsx     # Blocks unauthenticated traffic
+    ├── slicers/                        # LAYER 3: THE STATE & NETWORK MEMORY BOUNDARY
+    │   ├── root_store.ts               # Zustand store composer binding all slices
     │   │
-    │   ├── catalog/                    # Public browsing (Customer & Guest)
-    │   │   ├── api/                    # fetchProducts, fetchProductById
-    │   │   ├── store/                  # Zustand: catalogSlice (Active filters, search query)
+    │   ├── auth_slicer/
+    │   │   ├── auth_fetch.ts           # Login, Logout, Token Refresh I/O
+    │   │   └── auth_slice.ts           # JWT, Role, UserID state transitions
+    │   │
+    │   ├── inventory_slicer/           # Admin/Moderator exclusive data graph
+    │   │   ├── inventory_fetch.ts      # GET /admin/inventory, PATCH /product/:id
+    │   │   └── inventory_slice.ts      # Optimistic Concurrency Control tracking
+    │   │
+    │   ├── catalog_slicer/             # Public customer data graph
+    │   │   ├── catalog_fetch.ts        # GET /catalog with search parameters
+    │   │   └── catalog_slice.ts        # 2D/3D asset pointers and pagination state
+    │   │
+    │   └── cart_slicer/                # Ephemeral transactional state
+    │       ├── cart_fetch.ts           # syncCart, submitOrder (idempotency_key payload)
+    │       └── cart_slice.ts           # Local cart mutations
+    │
+    ├── features/                       # LAYER 4: STATELESS UI DOMAINS
+    │   ├── auth/                       # Subscribes exclusively to auth_slicer
+    │   │   ├── components/             # LoginForm, RegisterForm
+    │   │   └── guards/                 # RBAC enforcement wrappers (RequireAdmin, etc.)
+    │   │
+    │   ├── catalog/                    # Subscribes exclusively to catalog_slicer
     │   │   └── components/             # ProductGrid, FilterSidebar, 3DViewerFallback
     │   │
-    │   ├── cart_checkout/              # Ephemeral state & OCC processing
-    │   │   ├── api/                    # syncCart, submitOrder (with idempotency_key)
-    │   │   ├── store/                  # Zustand: cartSlice (Optimistic UI updates)
+    │   ├── checkout/                   # Subscribes exclusively to cart_slicer
     │   │   └── components/             # CartDrawer, PaymentGatewayForm
     │   │
-    │   ├── moderation/                 # Moderator access zone
-    │   │   ├── api/                    # fetchAssignedOrders, toggleProductStatus
-    │   │   └── components/             # OrderAuditQueue, ProductReviewTable
-    │   │
-    │   └── admin/                      # God-mode operational zone
-    │       ├── api/                    # deleteRole, modifyInventory, systemMetrics
-    │       └── components/             # AccessControlMatrix, GlobalRevenueDashboard
+    │   └── admin_moderation/           # Subscribes exclusively to inventory_slicer
+    │       └── components/             # OrderAuditQueue, ProductReviewTable, AccessMatrix
     │
-    └── pages/                          # LAYER 4: ROUTE ASSEMBLIES
+    └── pages/                          # LAYER 5: ROUTE ASSEMBLIES
         ├── storefront/
-        │   ├── Home.tsx                # Composes features/catalog components
-        │   ├── ProductDetail.tsx
-        │   └── Checkout.tsx
+        │   ├── Home.tsx                # Mounts catalog components
+        │   └── Checkout.tsx            # Mounts checkout components
         ├── dashboard/
         │   ├── ModeratorPanel.tsx      # Wrapped in <RequireModerator>
         │   └── SystemGodMode.tsx       # Wrapped in <RequireAdmin>

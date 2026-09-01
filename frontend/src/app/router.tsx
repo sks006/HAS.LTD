@@ -1,34 +1,33 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { StorefrontPage } from '../pages/storefront/StorefrontPage';
-import { DashboardPage } from '../pages/dashboard/DashboardPage';
-import { LoginPage } from '../pages/auth/LoginPage';
-import { useAuthStore } from '../features/auth/store/authSlice';
+import Home from '@/pages/storefront/Home';
+import ProductDetail from '@/pages/storefront/ProductDetail';
+import Checkout from '@/pages/storefront/Checkout';
+import Login from '@/pages/auth/Login';
+import ModeratorPanel from '@/pages/dashboard/ModeratorPanel';
+import SystemGodMode from '@/pages/dashboard/SystemGodMode';
 
-export function AppRouter() {
-  const token = useAuthStore((state) => state.token);
-  const role = useAuthStore((state) => state.role);
-
+export const AppRouter: React.FC = () => {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<StorefrontPage />} />
-        <Route 
-          path="/login" 
-          element={token ? <Navigate to="/" replace /> : <LoginPage />} 
-        />
-        <Route 
-          path="/dashboard" 
-          element={
-            token && (role === 'SUPER_ADMIN' || role === 'MODERATOR') ? (
-              <DashboardPage />
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          } 
-        />
+        {/* Storefront Routes */}
+        <Route path="/" element={<Home />} />
+        <Route path="/product/:id" element={<ProductDetail />} />
+        <Route path="/checkout" element={<Checkout />} />
+
+        {/* Auth Routes */}
+        <Route path="/login" element={<Login />} />
+
+        {/* Protected Dashboard Zones */}
+        <Route path="/dashboard/moderator" element={<ModeratorPanel />} />
+        <Route path="/dashboard/admin" element={<SystemGodMode />} />
+
+        {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
-}
+};
+
+export default AppRouter;

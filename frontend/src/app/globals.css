@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 0 0% 100%;
+  --foreground: 235 22% 23%;
+  --card: 30 18% 94%;
+  --card-foreground: 235 22% 23%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 235 22% 23%;
+  --primary: 235 22% 23%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 206 17% 40%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 0 0% 92%;
+  --muted-foreground: 206 17% 40%;
+  --accent: 19 19% 57%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 88%;
+  --input: 0 0% 88%;
+  --ring: 235 22% 23%;
+  --radius: 0.5rem;
+
+  --color-navy: #2d3047;
+  --color-slate-blue: #556877;
+  --color-light-gray: #b8b8b8;
+  --color-taupe: #a3887b;
+  --color-cream: #e5dfd8;
+}
+
+@layer base {
+  * { @apply border-border; }
+  html { scroll-behavior: smooth; }
+  body {
+    background-color: #ffffff;
+    color: #2d3047;
+    margin: 0;
+  }
+}
+
+.brand-mark { display: block; position: relative; width: 54px; height: 54px; color: #2d3047; }
+.brand-mark span { position: absolute; top: -4px; left: 4px; font-family: Georgia, serif; font-size: 42px; line-height: 1; transform: rotate(-24deg); }
+.brand-mark i { display: block; position: absolute; bottom: 3px; left: 13px; width: 28px; height: 16px; border: 3px solid #a3887b; border-left-color: transparent; border-radius: 50%; transform: rotate(-55deg); }
+.nav-link { position: relative; color: #2d3047; transition: color 180ms ease; }
+.nav-link::after { content: ''; position: absolute; left: 0; right: 0; bottom: -7px; height: 1px; background: currentColor; transform: scaleX(0); transform-origin: center; transition: transform 180ms ease; }
+.nav-link:hover::after, .nav-link.active::after { transform: scaleX(1); }
+.filter-pill { border: 1px solid #b8b8b8; border-radius: 999px; padding: 8px 13px; color: #556877; font-size: 11px; transition: all 180ms ease; }
+.filter-pill:hover, .filter-pill.selected { border-color: #2d3047; color: #ffffff; background: #2d3047; }
+.product-image-wrap { position: relative; overflow: hidden; aspect-ratio: 0.8 / 1; background: #e5dfd8; }
+.product-image { width: 100%; height: 100%; display: block; object-fit: cover; object-position: center top; filter: saturate(0.84); transition: transform 500ms cubic-bezier(.2,.7,.2,1), filter 300ms ease; }
+.group:hover .product-image { transform: scale(1.035); filter: saturate(0.98); }
+.sale-badge { position: absolute; left: 0; top: 0; z-index: 1; background: #a3887b; color: #ffffff; padding: 7px 10px; font-size: 10px; font-weight: 700; }
+.wishlist-button { position: absolute; right: 14px; top: 14px; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%; background: rgba(255,255,255,.9); color: #2d3047; opacity: 0; transform: translateY(4px); transition: opacity 180ms ease, transform 180ms ease, background 180ms ease; }
+.group:hover .wishlist-button, .wishlist-button.liked { opacity: 1; transform: translateY(0); }
+.wishlist-button:hover, .wishlist-button.liked { background: #ffffff; color: #a3887b; }
+.role-pill { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #b8b8b8; border-radius: 999px; padding: 9px 13px; background: #ffffff; color: #556877; font-size: 11px; font-weight: 600; transition: all 180ms ease; }
+.role-pill:hover, .role-pill.selected { border-color: #2d3047; background: #2d3047; color: #ffffff; }
+.inventory-stat { display: flex; min-height: 84px; align-items: center; gap: 11px; border: 1px solid #b8b8b8; border-radius: 10px; background: #ffffff; padding: 14px; text-align: left; }
+.inventory-stat p { margin: 0 0 4px; color: #556877; font-size: 10px; }
+.inventory-stat strong { color: #2d3047; font-size: 15px; font-weight: 650; letter-spacing: -.02em; }
+.inventory-icon { display: flex; height: 35px; width: 35px; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 8px; background: #e5dfd8; color: #2d3047; }
+.inventory-tool-button { display: inline-flex; height: 36px; align-items: center; gap: 6px; border: 1px solid #b8b8b8; border-radius: 7px; background: #ffffff; padding: 0 11px; color: #556877; font-size: 11px; transition: background 180ms ease, color 180ms ease; }
+.inventory-tool-button:hover { background: #e5dfd8; color: #2d3047; }
+.status-dot { display: inline-block; height: 6px; width: 6px; border-radius: 999px; }
+.status-badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 5px 8px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+.status-badge i { display: inline-block; height: 5px; width: 5px; border-radius: 999px; }
+.status-badge.in-stock { background: #e7f8eb; color: #24863c; }
+.status-badge.in-stock i { background: #21a547; }
+.status-badge.low-stock { background: #fff5d9; color: #a56f00; }
+.status-badge.low-stock i { background: #e6a817; }
+.status-badge.out-stock { background: #ffe8e8; color: #c53c3c; }
+.status-badge.out-stock i { background: #df3c3c; }
+@media (max-width: 767px) { .wishlist-button { opacity: 1; transform: none; } }

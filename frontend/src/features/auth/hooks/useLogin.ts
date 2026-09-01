@@ -1,19 +1,17 @@
 import { useMutation } from '@tanstack/react-query';
-import { apiClient } from '../../../shared/api/client';
-import { API_ENDPOINTS } from '../../../shared/api/endpoints';
-import { useAuthStore } from '../store/authSlice';
+import { loginFetch } from '@/slicers/auth_slicer/auth_fetch';
+import { useRootStore } from '@/slicers/root_store';
 
 export function useLogin() {
-  const setAuth = useAuthStore((state) => state.setAuth);
+  const setAuth = useRootStore((s) => s.setAuth);
 
   return useMutation({
-    mutationFn: async (credentials: any) => {
-      const response = await apiClient.post(API_ENDPOINTS.login, credentials);
-      return response.data;
+    mutationFn: async (credentials: { email: string; password_hash: string }) => {
+      return loginFetch(credentials.email, credentials.password_hash);
     },
     onSuccess: (data) => {
       if (data.token) {
-        setAuth(data.token, data.role || 'CUSTOMER');
+        setAuth(data.user, data.token);
       }
     },
   });
