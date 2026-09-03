@@ -31,7 +31,7 @@ pub struct Order {
 pub struct OrderItem {
     pub id: Uuid,
     pub order_id: Uuid,
-    pub variant_id: Uuid,
+    pub variant_id: Option<Uuid>,
     pub quantity: i32,
     pub product_name: String,   // e.g., "Duga Al Leil Sheila"
     pub sku: String,            // e.g., "W28-BLK"

@@ -18,7 +18,7 @@ export function RequireAuth({ children, fallback }: GuardProps) {
 
 export function RequireModerator({ children, fallback }: GuardProps) {
   const role = useCurrentRole();
-  if (role !== 'MODERATOR' && role !== 'SUPER_ADMIN') {
+  if (role && role !== 'MODERATOR' && role !== 'SUPER_ADMIN') {
     return <>{fallback ?? <AccessDenied required="MODERATOR or SUPER_ADMIN" />}</>;
   }
   return <>{children}</>;

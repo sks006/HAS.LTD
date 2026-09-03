@@ -1,11 +1,12 @@
 use axum::{ extract::State, Json };
 use serde::Serialize;
 use validator::Validate;
+use uuid::Uuid;
 
 use crate::{
     dtos::CheckoutRequestDto,
     errors::ApiError,
-    middleware::{ RequireCustomer, IdempotencyExtractor },
+    middleware::IdempotencyExtractor,
     state::AppState,
 };
 
@@ -20,12 +21,12 @@ use domain::services::checkout::{CheckoutService, CreateOrderInput, OrderItemInp
 #[derive(Serialize)]
 pub struct CheckoutResponse {
     pub ok: bool,
+    pub order_id: Uuid,
     pub message: String,
 }
 
 pub async fn checkout(
     State(state): State<AppState>,
-    RequireCustomer(auth): RequireCustomer,
     IdempotencyExtractor(idempotency_key): IdempotencyExtractor,
     Json(payload): Json<CheckoutRequestDto>,
 ) -> Result<Json<CheckoutResponse>, ApiError> {
@@ -49,6 +50,10 @@ pub async fn checkout(
     // 4. Map DTO to domain input types
     let items = payload.items.into_iter().map(|item| OrderItemInput {
         variant_id: item.variant_id,
+        product_id: item.product_id,
+        price_minor_units: item.price_minor_units,
+        product_name: item.product_name,
+        sku: item.sku,
         quantity: item.quantity,
     }).collect();
 
@@ -80,7 +85,7 @@ pub async fn checkout(
     };
 
     let input = CreateOrderInput {
-        user_id: Some(auth.sub),
+        user_id: None,
         items,
         shipping_address,
         billing_address,
@@ -94,6 +99,7 @@ pub async fn checkout(
     Ok(
         Json(CheckoutResponse {
             ok: true,
+            order_id: order.id,
             message: format!("checkout accepted: order {}", order.id),
         })
     )

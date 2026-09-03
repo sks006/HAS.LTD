@@ -37,6 +37,15 @@ pub trait OrderRepository: Send + Sync {
         offset: u32,
     ) -> Result<Vec<Order>, DomainError>;
 
+    async fn list_all_orders(
+        &self,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<Order>, DomainError>;
+
+    /// Delete an order and its items by ID.
+    async fn delete_order(&self, order_id: Uuid) -> Result<(), DomainError>;
+
     /// Update the state of an order (e.g., Pending → Paid → Shipped).
     /// **OCC is mandatory**: the `expected_version` must equal the current `version`.
     /// If they match, the state is updated and `version` is incremented.

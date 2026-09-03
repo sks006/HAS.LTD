@@ -251,6 +251,25 @@ The Axum server boots up at `http://localhost:3000`.
 
 ---
 
+#### Start frontend with script
+
+```bash
+./scripts/dev.sh frontend
+```
+
+#### Start backend with script
+
+```bash
+./scripts/dev.sh backend
+```
+
+#### Start frontend and backend with docker
+
+```bash
+./scripts/dev.sh all
+```
+
+
 ## 💻 Useful Commands
 
 Make use of the provided `Makefile` wrappers for convenience:

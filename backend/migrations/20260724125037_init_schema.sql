@@ -76,7 +76,7 @@ CREATE TABLE product_reviews (
 -- 4. Order and Checkout System
 CREATE TABLE orders (
     id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
     state order_state_enum NOT NULL,
     currency VARCHAR(10) NOT NULL,
     shipping_address JSONB,
@@ -91,7 +91,7 @@ CREATE TABLE orders (
 CREATE TABLE order_items (
     id UUID PRIMARY KEY,
     order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-    variant_id UUID NOT NULL REFERENCES product_variants(id) ON DELETE RESTRICT,
+    variant_id UUID REFERENCES product_variants(id) ON DELETE SET NULL,
     quantity INT NOT NULL,
     product_name VARCHAR(255) NOT NULL,
     sku VARCHAR(100) NOT NULL,

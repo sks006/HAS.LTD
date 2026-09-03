@@ -21,7 +21,8 @@ domain = { path = "../domain" }
 infrastructure = { path = "../infrastructure" }
 chrono = "0.4.45"
 tracing = "0.1"
-rust_decimal = { version = "1.42", features = ["serde"] }  # <-- add this
+rust_decimal = { version = "1.42", features = ["serde"] }
+tower-http = { version = "0.6", features = ["cors"] }
 
 [features]
 default = []

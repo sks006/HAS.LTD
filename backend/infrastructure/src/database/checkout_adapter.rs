@@ -80,7 +80,7 @@ impl CheckoutTransactionPort for SqlxCheckoutAdapter {
                 total_minor_units, version, idempotency_key,
                 created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3::order_state_enum, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
         )
         .bind(order.id)                         // $1

@@ -47,7 +47,7 @@ impl OrderRepository for PgOrderRepository {
                 total_minor_units, version, idempotency_key,
                 created_at, updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3::order_state_enum, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
         )
         .bind(order.id)
@@ -80,7 +80,7 @@ impl OrderRepository for PgOrderRepository {
     async fn get_order_by_id(&self, id: Uuid) -> Result<Option<Order>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, user_id, state, currency, shipping_address, billing_address, total_minor_units, version, idempotency_key, created_at, updated_at
+            SELECT id, user_id, state::text AS state, currency, shipping_address, billing_address, total_minor_units, version, idempotency_key, created_at, updated_at
             FROM orders
             WHERE id = $1
             "#
@@ -96,11 +96,11 @@ impl OrderRepository for PgOrderRepository {
             let billing_val: Option<serde_json::Value> = r.get("billing_address");
             
             let shipping_address = match shipping_val {
-                Some(v) => serde_json::from_value(v).map_err(|e| DomainError::Serialization(e.to_string()))?,
+                Some(v) => serde_json::from_value(v).ok(),
                 None => None,
             };
             let billing_address = match billing_val {
-                Some(v) => serde_json::from_value(v).map_err(|e| DomainError::Serialization(e.to_string()))?,
+                Some(v) => serde_json::from_value(v).ok(),
                 None => None,
             };
 
@@ -135,7 +135,7 @@ impl OrderRepository for PgOrderRepository {
     async fn get_order_by_idempotency_key(&self, key: &str) -> Result<Option<Order>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, user_id, state, currency, shipping_address, billing_address, total_minor_units, version, idempotency_key, created_at, updated_at
+            SELECT id, user_id, state::text AS state, currency, shipping_address, billing_address, total_minor_units, version, idempotency_key, created_at, updated_at
             FROM orders
             WHERE idempotency_key = $1
             "#
@@ -151,11 +151,11 @@ impl OrderRepository for PgOrderRepository {
             let billing_val: Option<serde_json::Value> = r.get("billing_address");
             
             let shipping_address = match shipping_val {
-                Some(v) => serde_json::from_value(v).map_err(|e| DomainError::Serialization(e.to_string()))?,
+                Some(v) => serde_json::from_value(v).ok(),
                 None => None,
             };
             let billing_address = match billing_val {
-                Some(v) => serde_json::from_value(v).map_err(|e| DomainError::Serialization(e.to_string()))?,
+                Some(v) => serde_json::from_value(v).ok(),
                 None => None,
             };
 
@@ -195,7 +195,7 @@ impl OrderRepository for PgOrderRepository {
     ) -> Result<Vec<Order>, DomainError> {
         let rows = sqlx::query(
             r#"
-            SELECT id, user_id, state, currency, shipping_address, billing_address, total_minor_units, version, idempotency_key, created_at, updated_at
+            SELECT id, user_id, state::text AS state, currency, shipping_address, billing_address, total_minor_units, version, idempotency_key, created_at, updated_at
             FROM orders
             WHERE user_id = $1
             ORDER BY created_at DESC
@@ -251,43 +251,130 @@ impl OrderRepository for PgOrderRepository {
         Ok(orders)
     }
 
+    async fn list_all_orders(
+        &self,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Vec<Order>, DomainError> {
+        let rows = sqlx::query(
+            r#"
+            SELECT id, user_id, state::text AS state, currency, shipping_address, billing_address, total_minor_units, version, idempotency_key, created_at, updated_at
+            FROM orders
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
+            "#
+        )
+        .bind(limit as i64)
+        .bind(offset as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        let mut orders = Vec::with_capacity(rows.len());
+        for r in rows {
+            use sqlx::Row;
+            let shipping_val: Option<serde_json::Value> = r.get("shipping_address");
+            let billing_val: Option<serde_json::Value> = r.get("billing_address");
+            
+            let shipping_address = match shipping_val {
+                Some(v) => serde_json::from_value(v).ok(),
+                None => None,
+            };
+            let billing_address = match billing_val {
+                Some(v) => serde_json::from_value(v).ok(),
+                None => None,
+            };
+
+            let state_str: String = r.get("state");
+            let state = match state_str.as_str() {
+                "Pending" => OrderState::Pending,
+                "Reserved" => OrderState::Reserved,
+                "Paid" => OrderState::Paid,
+                "Shipped" => OrderState::Shipped,
+                "Cancelled" => OrderState::Cancelled,
+                _ => return Err(DomainError::Database(format!("Unknown order state: {}", state_str))),
+            };
+
+            orders.push(Order {
+                id: r.get("id"),
+                user_id: r.get("user_id"),
+                state,
+                currency: r.get("currency"),
+                shipping_address,
+                billing_address,
+                total_minor_units: r.get("total_minor_units"),
+                version: r.get("version"),
+                idempotency_key: r.get("idempotency_key"),
+                created_at: r.get("created_at"),
+                updated_at: r.get("updated_at"),
+            });
+        }
+        Ok(orders)
+    }
+
+    async fn delete_order(&self, order_id: Uuid) -> Result<(), DomainError> {
+        let mut tx = self.pool.begin().await.map_err(|e| DomainError::Database(e.to_string()))?;
+
+        sqlx::query("DELETE FROM order_items WHERE order_id = $1")
+            .bind(order_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        sqlx::query("DELETE FROM orders WHERE id = $1")
+            .bind(order_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| DomainError::Database(e.to_string()))?;
+
+        tx.commit().await.map_err(|e| DomainError::Database(e.to_string()))?;
+        Ok(())
+    }
+
     async fn update_order_state(
         &self,
         order_id: Uuid,
         expected_version: i32,
         new_state: OrderState,
     ) -> Result<Order, DomainError> {
-        let rows_affected = sqlx::query(
-            r#"
-            UPDATE orders
-            SET state = $1, version = version + 1, updated_at = NOW()
-            WHERE id = $2 AND version = $3
-            "#
-        )
-        .bind(order_state_to_str(&new_state))
-        .bind(order_id)
-        .bind(expected_version)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| DomainError::Database(e.to_string()))?
-        .rows_affected();
+        let rows_affected = if expected_version > 0 {
+            sqlx::query(
+                r#"
+                UPDATE orders
+                SET state = $1::order_state_enum, version = version + 1, updated_at = NOW()
+                WHERE id = $2 AND version = $3
+                "#
+            )
+            .bind(order_state_to_str(&new_state))
+            .bind(order_id)
+            .bind(expected_version)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DomainError::Database(e.to_string()))?
+            .rows_affected()
+        } else {
+            sqlx::query(
+                r#"
+                UPDATE orders
+                SET state = $1::order_state_enum, version = version + 1, updated_at = NOW()
+                WHERE id = $2
+                "#
+            )
+            .bind(order_state_to_str(&new_state))
+            .bind(order_id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| DomainError::Database(e.to_string()))?
+            .rows_affected()
+        };
 
         if rows_affected == 0 {
-            if let Some(existing) = self.get_order_by_id(order_id).await? {
-                return Err(DomainError::ConcurrencyConflict {
-                    message: format!(
-                        "Order {} version conflict: expected version {}, found version {}",
-                        order_id, expected_version, existing.version
-                    ),
-                });
-            } else {
-                return Err(DomainError::OrderNotFound);
-            }
+            return Err(DomainError::OrderNotFound);
         }
 
         self.get_order_by_id(order_id)
             .await?
-            .ok_or(DomainError::OrderNotFound)
+            .ok_or_else(|| DomainError::Database("Order missing after update".to_string()))
     }
 
     async fn set_shipping_address(
@@ -355,7 +442,7 @@ impl OrderRepository for PgOrderRepository {
 
         let order = sqlx::query(
             r#"
-            SELECT state FROM orders WHERE id = $1 FOR UPDATE
+            SELECT state::text AS state FROM orders WHERE id = $1 FOR UPDATE
             "#
         )
         .bind(order_id)
