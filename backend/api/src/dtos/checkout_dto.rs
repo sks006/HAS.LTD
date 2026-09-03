@@ -31,7 +31,11 @@ pub struct AddressDto {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct CheckoutItemDto {
-    pub variant_id: Uuid,
+    pub variant_id: Option<Uuid>,
+    pub product_id: Option<Uuid>,
+    pub price_minor_units: Option<i64>,
+    pub product_name: Option<String>,
+    pub sku: Option<String>,
     
     #[validate(range(min = 1, message = "Quantity must be at least 1"))]
     pub quantity: i32,

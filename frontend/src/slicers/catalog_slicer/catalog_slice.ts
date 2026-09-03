@@ -1,87 +1,202 @@
-import type { StateCreator } from 'zustand';
+import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
+import { apiFetch } from '@/shared/api/client';
+import { ENDPOINTS } from '@/shared/api/endpoints';
 import type { ProductDto } from '@/shared/types/contracts';
 
-export interface CatalogSlice {
-  products: ProductDto[];
+// Types for payloads
+export interface CreateProductPayload {
+  name: string;
+  price: number;
+  description?: string;
+  fabric_type?: string;
+  season?: string;
+  images?: string[];
+  stock?: number;
+  incoming?: number;
+}
+
+export interface UpdateProductPayload {
+  name?: string;
+  price?: number;
+  description?: string;
+  fabric_type?: string;
+  season?: string;
+  images?: string[];
+  stock?: number;
+  incoming?: number;
+}
+
+// Async thunks
+export const fetchCatalogProducts = createAsyncThunk<ProductDto[]>(
+  'products/fetchCatalog',
+  async (_, { rejectWithValue }) => {
+    try {
+      const rawData = await apiFetch<any[]>(ENDPOINTS.PRODUCTS);
+      return rawData.map((item, idx) => ({
+        id: item.id || `prod-${idx}`,
+        name: item.name || 'Untitled Piece',
+        category: item.category || item.fabric_type || 'no category',
+        price: typeof item.price === 'number' ? item.price : (item.price_cents ? item.price_cents / 100 : 1999),
+        currency: 'SAR',
+        image: (item.images && item.images[0]) || item.image,
+        alt: item.name || 'Product Image',
+        sale: true,
+        rating: item.rating,
+        reviews: item.reviews,
+        stock: typeof item.stock === 'number' ? item.stock : 0,
+        incoming: typeof item.incoming === 'number' ? item.incoming : 0,
+      }));
+    } catch (error) {
+      return rejectWithValue(error);
+    }
+  }
+);
+
+export const fetchProductById = createAsyncThunk<ProductDto, string>(
+  'products/fetchById',
+  async (id, { rejectWithValue }) => {
+    try {
+      return await apiFetch<ProductDto>(ENDPOINTS.PRODUCT_BY_ID(id));
+    } catch (error) {
+      return rejectWithValue(error);
+    }
+  }
+);
+
+export const createProduct = createAsyncThunk<ProductDto, CreateProductPayload>(
+  'products/create',
+  async (payload, { rejectWithValue }) => {
+    try {
+      return await apiFetch<ProductDto>(ENDPOINTS.PRODUCTS, {
+        method: 'POST',
+        body: payload,
+      });
+    } catch (error) {
+      return rejectWithValue(error);
+    }
+  }
+);
+
+export const updateProduct = createAsyncThunk<ProductDto, { id: string; payload: UpdateProductPayload }>(
+  'products/update',
+  async ({ id, payload }, { rejectWithValue }) => {
+    try {
+      return await apiFetch<ProductDto>(ENDPOINTS.PRODUCT_BY_ID(id), {
+        method: 'PUT',
+        body: payload,
+      });
+    } catch (error) {
+      return rejectWithValue(error);
+    }
+  }
+);
+
+export const deleteProduct = createAsyncThunk<void, string>(
+  'products/delete',
+  async (id, { rejectWithValue }) => {
+    try {
+      await apiFetch<void>(ENDPOINTS.PRODUCT_BY_ID(id), {
+        method: 'DELETE',
+      });
+    } catch (error) {
+      return rejectWithValue(error);
+    }
+  }
+);
+
+// Slice state
+export interface ProductsState {
+  items: ProductDto[];
+  selectedProduct: ProductDto | null;
   activeFilter: string;
   searchQuery: string;
   selectedAsset2D3D: string | null;
-  setProducts: (products: ProductDto[]) => void;
-  setActiveFilter: (filter: string) => void;
-  setSearchQuery: (query: string) => void;
-  setSelectedAsset2D3D: (asset: string | null) => void;
+  loading: boolean;
+  error: string | null;
 }
 
-const initialProducts: ProductDto[] = [
-  {
-    id: 'prod-1',
-    name: 'Ajrah Noor Silk Organza Abaya',
-    category: 'Velvet & Silk',
-    price: 1850,
-    currency: 'SAR',
-    image: 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&q=80&w=800',
-    alt: 'Ajrah Noor Silk Organza Abaya',
-    sale: true,
-    rating: 4.9,
-    reviews: 28,
-  },
-  {
-    id: 'prod-2',
-    name: 'Noor Gold Embroidered Royal Abaya',
-    category: 'Gold Embroidery',
-    price: 2400,
-    currency: 'SAR',
-    image: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&q=80&w=800',
-    alt: 'Noor Gold Embroidered Royal Abaya',
-    sale: false,
-    rating: 5.0,
-    reviews: 42,
-  },
-  {
-    id: 'prod-3',
-    name: 'Ajrah Atelier Chiffon Layered Abaya',
-    category: 'Casual Luxe',
-    price: 1450,
-    currency: 'SAR',
-    image: 'https://images.unsplash.com/photo-1496747611176-843222e1e57c?auto=format&fit=crop&q=80&w=800',
-    alt: 'Ajrah Atelier Chiffon Layered Abaya',
-    sale: false,
-    rating: 4.8,
-    reviews: 19,
-  },
-  {
-    id: 'prod-4',
-    name: 'Midnight Velvet Crystal Abaya',
-    category: 'Bridal Edition',
-    price: 3200,
-    currency: 'SAR',
-    image: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?auto=format&fit=crop&q=80&w=800',
-    alt: 'Midnight Velvet Crystal Abaya',
-    sale: true,
-    rating: 5.0,
-    reviews: 64,
-  },
-  {
-    id: 'prod-5',
-    name: 'Ajrah Satin Overlay Kimono Abaya',
-    category: 'Velvet & Silk',
-    price: 1950,
-    currency: 'SAR',
-    image: 'https://images.unsplash.com/photo-1509631179647-0177331693ae?auto=format&fit=crop&q=80&w=800',
-    alt: 'Ajrah Satin Overlay Kimono Abaya',
-    sale: false,
-    rating: 4.9,
-    reviews: 31,
-  },
-];
-
-export const createCatalogSlice: StateCreator<CatalogSlice, [], [], CatalogSlice> = (set) => ({
-  products: initialProducts,
+const initialState: ProductsState = {
+  items: [],
+  selectedProduct: null,
   activeFilter: 'All Abayas',
   searchQuery: '',
   selectedAsset2D3D: null,
-  setProducts: (products) => set({ products }),
-  setActiveFilter: (activeFilter) => set({ activeFilter }),
-  setSearchQuery: (searchQuery) => set({ searchQuery }),
-  setSelectedAsset2D3D: (selectedAsset2D3D) => set({ selectedAsset2D3D }),
+  loading: false,
+  error: null,
+};
+
+const productsSlice = createSlice({
+  name: 'products',
+  initialState,
+  reducers: {
+    setActiveFilter: (state, action: PayloadAction<string>) => {
+      state.activeFilter = action.payload;
+    },
+    setSearchQuery: (state, action: PayloadAction<string>) => {
+      state.searchQuery = action.payload;
+    },
+    setSelectedAsset2D3D: (state, action: PayloadAction<string | null>) => {
+      state.selectedAsset2D3D = action.payload;
+    },
+    setProducts: (state, action: PayloadAction<ProductDto[]>) => {
+      state.items = action.payload;
+    },
+    removeProduct: (state, action: PayloadAction<string>) => {
+      state.items = state.items.filter((p) => p.id !== action.payload);
+    },
+  },
+  extraReducers: (builder) => {
+    builder
+      // Fetch catalog
+      .addCase(fetchCatalogProducts.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchCatalogProducts.fulfilled, (state, action) => {
+        state.loading = false;
+        state.items = action.payload;
+      })
+      .addCase(fetchCatalogProducts.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload ? String(action.payload) : 'Failed to fetch products';
+      })
+      // Fetch single product
+      .addCase(fetchProductById.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchProductById.fulfilled, (state, action) => {
+        state.loading = false;
+        state.selectedProduct = action.payload;
+      })
+      .addCase(fetchProductById.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload ? String(action.payload) : 'Failed to fetch product';
+      })
+      // Create product
+      .addCase(createProduct.fulfilled, (state, action) => {
+        state.items.push(action.payload);
+      })
+      // Update product
+      .addCase(updateProduct.fulfilled, (state, action) => {
+        const index = state.items.findIndex((p) => p.id === action.payload.id);
+        if (index !== -1) {
+          state.items[index] = action.payload;
+        }
+      })
+      // Delete product
+      .addCase(deleteProduct.fulfilled, (state, action) => {
+        state.items = state.items.filter((p) => p.id !== action.meta.arg);
+      });
+  },
 });
+
+export const {
+  setActiveFilter,
+  setSearchQuery,
+  setSelectedAsset2D3D,
+  setProducts,
+  removeProduct,
+} = productsSlice.actions;
+
+export default productsSlice.reducer;

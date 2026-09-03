@@ -1,4 +1,6 @@
 import React from 'react';
+import { Provider } from 'react-redux';
+import { store } from '@/slicers/root_store';
 import { QueryClientProvider } from './QueryClientProvider';
 import { AuthProvider } from './AuthProvider';
 
@@ -8,9 +10,11 @@ interface ProvidersProps {
 
 export const Providers: React.FC<ProvidersProps> = ({ children }) => {
   return (
-    <QueryClientProvider>
-      <AuthProvider>{children}</AuthProvider>
-    </QueryClientProvider>
+    <Provider store={store}>
+      <QueryClientProvider>
+        <AuthProvider>{children}</AuthProvider>
+      </QueryClientProvider>
+    </Provider>
   );
 };
 

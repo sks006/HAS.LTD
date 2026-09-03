@@ -4,8 +4,10 @@ import Home from '@/pages/storefront/Home';
 import ProductDetail from '@/pages/storefront/ProductDetail';
 import Checkout from '@/pages/storefront/Checkout';
 import Login from '@/pages/auth/Login';
+import InventoryDashboard from '@/pages/dashboard/InventoryDashboard';
 import ModeratorPanel from '@/pages/dashboard/ModeratorPanel';
-import SystemGodMode from '@/pages/dashboard/SystemGodMode';
+import OrdersPage from '@/pages/dashboard/OrdersPage';
+import CustomerOrderPage from '@/pages/storefront/CustomerOrderPage';
 
 export const AppRouter: React.FC = () => {
   return (
@@ -15,13 +17,21 @@ export const AppRouter: React.FC = () => {
         <Route path="/" element={<Home />} />
         <Route path="/product/:id" element={<ProductDetail />} />
         <Route path="/checkout" element={<Checkout />} />
+        <Route path="/orders/:id" element={<CustomerOrderPage />} />
+        <Route path="/order-status/:id" element={<CustomerOrderPage />} />
+        <Route path="/order-status" element={<CustomerOrderPage />} />
 
         {/* Auth Routes */}
         <Route path="/login" element={<Login />} />
 
-        {/* Protected Dashboard Zones */}
+        {/* Unified Admin & Moderator Dashboard Routes */}
+        <Route path="/orders" element={<OrdersPage />} />
+        <Route path="/dashboard/orders" element={<OrdersPage />} />
+        <Route path="/admin" element={<InventoryDashboard />} />
+        <Route path="/moderator" element={<ModeratorPanel />} />
         <Route path="/dashboard/moderator" element={<ModeratorPanel />} />
-        <Route path="/dashboard/admin" element={<SystemGodMode />} />
+        <Route path="/dashboard" element={<InventoryDashboard />} />
+        <Route path="/dashboard/*" element={<InventoryDashboard />} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />

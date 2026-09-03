@@ -5,24 +5,23 @@ import { AccessControlMatrix } from '@/features/admin_moderation/components/Acce
 import { useNavigate } from 'react-router-dom';
 import Button from '@/shared/ui/Button';
 
+import DashboardLayout from '@/features/admin_moderation/components/DashboardLayout';
+
 export const SystemGodModeContent: React.FC = () => {
-  const navigate = useNavigate();
-
   return (
-    <div className="min-h-screen bg-white text-navy p-6 md:p-12 space-y-8 font-sans">
-      <div className="flex items-center justify-between border-b border-lightgray pb-6">
-        <div>
-          <span className="text-xs uppercase font-mono text-taupe font-bold">God Mode Domain</span>
-          <h1 className="text-3xl font-extrabold text-navy mt-1">System Operational Admin</h1>
+    <DashboardLayout activeTab="Products">
+      <div className="space-y-8 max-w-7xl mx-auto">
+        <div className="flex items-center justify-between border-b border-gray-200 pb-4">
+          <div>
+            <span className="text-xs uppercase font-mono text-gray-400 font-bold">God Mode Domain</span>
+            <h1 className="text-2xl font-extrabold text-gray-900 mt-0.5">System Operational Admin</h1>
+          </div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => navigate('/')}>
-          Storefront
-        </Button>
-      </div>
 
-      <GlobalRevenueDashboard />
-      <AccessControlMatrix />
-    </div>
+        <GlobalRevenueDashboard />
+        <AccessControlMatrix />
+      </div>
+    </DashboardLayout>
   );
 };
 

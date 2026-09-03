@@ -1,10 +1,11 @@
 use axum::{ routing::{ get, post, put }, Router };
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
     handlers::{
-        catalog::{list_products, get_product},
+        catalog::{list_products, get_product, create_product, update_product, delete_product},
         checkout::checkout,
-        order::{get_order, update_order_status},
+        order::{list_orders, get_order, update_order_status, delete_order},
         auth::{login, register, logout},
         cart::sync_cart,
         admin::{adjust_inventory, get_system_metrics},
@@ -14,15 +15,21 @@ use crate::{
 };
 
 pub fn build_router(state: AppState) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     Router::new()
         .route(
             "/health",
             get(|| async { "ok" })
         )
-        .route("/products", get(list_products))
-        .route("/products/{id}", get(get_product))
+        .route("/products", get(list_products).post(create_product))
+        .route("/products/{id}", get(get_product).put(update_product).delete(delete_product))
         .route("/checkout", post(checkout))
-        .route("/orders/{id}", get(get_order))
+        .route("/orders", get(list_orders))
+        .route("/orders/{id}", get(get_order).delete(delete_order))
         .route("/orders/{id}/status", put(update_order_status))
         
         // Auth routes
@@ -40,6 +47,6 @@ pub fn build_router(state: AppState) -> Router {
         // Webhooks
         .route("/webhooks/payment", post(handle_payment_webhook))
         
+        .layer(cors)
         .with_state(state)
 }
-
