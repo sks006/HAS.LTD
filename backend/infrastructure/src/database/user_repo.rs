@@ -58,20 +58,21 @@ impl UserRepository for PgUserRepository {
     async fn create_user(&self, user: User, password_hash: String) -> Result<User, DomainError> {
         sqlx::query(
             r#"
-            INSERT INTO users (id, email, password_hash, name, role, is_active, deleted_at, email_verified_at, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            INSERT INTO users (id, email, email_normalized, name, role, status, auth_version, email_verified_at, created_at, updated_at, metadata)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#
         )
-        .bind(user.id)
+        .bind(user.id.0)
         .bind(&user.email)
-        .bind(&password_hash)
+        .bind(&user.email_normalized)
         .bind(&user.name)
         .bind(user_role_to_str(&user.role))
-        .bind(user.is_active)
-        .bind(user.deleted_at)
+        .bind(user.status)
+        .bind(user.auth_version)
         .bind(user.email_verified_at)
         .bind(user.created_at)
         .bind(user.updated_at)
+        .bind(&user.metadata)
         .execute(&self.pool)
         .await
         .map_err(|e| {
@@ -83,13 +84,33 @@ impl UserRepository for PgUserRepository {
             DomainError::Database(e.to_string())
         })?;
 
+        // If credentials table exists, store the password there
+        let _ = sqlx::query(
+            r#"
+            INSERT INTO credentials (id, user_id, kind, provider, provider_subject, secret_hash, created_at, updated_at)
+            VALUES ($1, $2, 'password', 'local', NULL, $3, $4, $5)
+            ON CONFLICT DO NOTHING
+            "#
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(user.id.0)
+        .bind(&password_hash)
+        .bind(user.created_at)
+        .bind(user.updated_at)
+        .execute(&self.pool)
+        .await;
+
         Ok(user)
     }
 
     async fn get_user_by_id(&self, id: Uuid) -> Result<Option<User>, DomainError> {
         let row = sqlx::query(
             r#"
-            SELECT id, email, name, role, is_active, deleted_at, email_verified_at, created_at, updated_at
+            SELECT id, email, COALESCE(email_normalized, LOWER(email)) AS email_normalized, name, role, 
+                   COALESCE(status, 'ACTIVE'::user_status_enum) AS status,
+                   COALESCE(auth_version, 0) AS auth_version,
+                   email_verified_at, created_at, updated_at,
+                   COALESCE(metadata, '{}'::jsonb) AS metadata
             FROM users
             WHERE id = $1
             "#
@@ -103,16 +124,19 @@ impl UserRepository for PgUserRepository {
             use sqlx::Row;
             let role_str: String = r.get("role");
             let role = str_to_user_role(&role_str)?;
+            let user_id: Uuid = r.get("id");
             Ok(Some(User {
-                id: r.get("id"),
+                id: domain::models::identifiers::UserId(user_id),
                 email: r.get("email"),
+                email_normalized: r.get("email_normalized"),
                 name: r.get("name"),
                 role,
-                is_active: r.get("is_active"),
-                deleted_at: r.get("deleted_at"),
+                status: r.get("status"),
+                auth_version: r.get("auth_version"),
                 email_verified_at: r.get("email_verified_at"),
                 created_at: r.get("created_at"),
                 updated_at: r.get("updated_at"),
+                metadata: r.get("metadata"),
             }))
         } else {
             Ok(None)
@@ -120,14 +144,20 @@ impl UserRepository for PgUserRepository {
     }
 
     async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, DomainError> {
+        let normalized = email.trim().to_lowercase();
         let row = sqlx::query(
             r#"
-            SELECT id, email, name, role, is_active, deleted_at, email_verified_at, created_at, updated_at
+            SELECT id, email, COALESCE(email_normalized, LOWER(email)) AS email_normalized, name, role, 
+                   COALESCE(status, 'ACTIVE'::user_status_enum) AS status,
+                   COALESCE(auth_version, 0) AS auth_version,
+                   email_verified_at, created_at, updated_at,
+                   COALESCE(metadata, '{}'::jsonb) AS metadata
             FROM users
-            WHERE email = $1
+            WHERE email = $1 OR email_normalized = $2
             "#
         )
         .bind(email)
+        .bind(normalized)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| DomainError::Database(e.to_string()))?;
@@ -136,16 +166,19 @@ impl UserRepository for PgUserRepository {
             use sqlx::Row;
             let role_str: String = r.get("role");
             let role = str_to_user_role(&role_str)?;
+            let user_id: Uuid = r.get("id");
             Ok(Some(User {
-                id: r.get("id"),
+                id: domain::models::identifiers::UserId(user_id),
                 email: r.get("email"),
+                email_normalized: r.get("email_normalized"),
                 name: r.get("name"),
                 role,
-                is_active: r.get("is_active"),
-                deleted_at: r.get("deleted_at"),
+                status: r.get("status"),
+                auth_version: r.get("auth_version"),
                 email_verified_at: r.get("email_verified_at"),
                 created_at: r.get("created_at"),
                 updated_at: r.get("updated_at"),
+                metadata: r.get("metadata"),
             }))
         } else {
             Ok(None)
@@ -153,34 +186,22 @@ impl UserRepository for PgUserRepository {
     }
 
     async fn get_user_identity_by_email(&self, email: &str) -> Result<Option<UserIdentity>, DomainError> {
-        let row = sqlx::query(
-            r#"
-            SELECT id, email, name, role, is_active, deleted_at, email_verified_at, created_at, updated_at, password_hash
-            FROM users
-            WHERE email = $1
-            "#
-        )
-        .bind(email)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| DomainError::Database(e.to_string()))?;
+        if let Some(user) = self.get_user_by_email(email).await? {
+            // Check credentials table first, fallback to users.password_hash if legacy
+            let cred_row = sqlx::query("SELECT secret_hash FROM credentials WHERE user_id = $1 AND kind = 'password' LIMIT 1")
+                .bind(user.id.0)
+                .fetch_optional(&self.pool)
+                .await
+                .ok()
+                .flatten();
 
-        if let Some(r) = row {
-            use sqlx::Row;
-            let role_str: String = r.get("role");
-            let role = str_to_user_role(&role_str)?;
-            let user = User {
-                id: r.get("id"),
-                email: r.get("email"),
-                name: r.get("name"),
-                role,
-                is_active: r.get("is_active"),
-                deleted_at: r.get("deleted_at"),
-                email_verified_at: r.get("email_verified_at"),
-                created_at: r.get("created_at"),
-                updated_at: r.get("updated_at"),
+            let password_hash = if let Some(row) = cred_row {
+                use sqlx::Row;
+                row.get::<Option<String>, _>("secret_hash").unwrap_or_default()
+            } else {
+                String::new()
             };
-            let password_hash: String = r.get("password_hash");
+
             Ok(Some(UserIdentity {
                 user,
                 password_hash,
@@ -194,17 +215,18 @@ impl UserRepository for PgUserRepository {
         let rows_affected = sqlx::query(
             r#"
             UPDATE users
-            SET email = $1, name = $2, role = $3, is_active = $4, deleted_at = $5, email_verified_at = $6, updated_at = NOW()
-            WHERE id = $7
+            SET email = $1, email_normalized = $2, name = $3, role = $4, status = $5, email_verified_at = $6, metadata = $7, updated_at = NOW()
+            WHERE id = $8
             "#
         )
         .bind(&user.email)
+        .bind(&user.email_normalized)
         .bind(&user.name)
         .bind(user_role_to_str(&user.role))
-        .bind(user.is_active)
-        .bind(user.deleted_at)
+        .bind(user.status)
         .bind(user.email_verified_at)
-        .bind(user.id)
+        .bind(&user.metadata)
+        .bind(user.id.0)
         .execute(&self.pool)
         .await
         .map_err(|e| DomainError::Database(e.to_string()))?
