@@ -11,30 +11,53 @@ use domain::errors::DomainError;
 #[derive(Debug)]
 pub enum ApiError {
     BadRequest(String),
+    BadRequestWithCode { code: String, message: String },
     Unauthorized(String),
-    Forbidden(String),
+    UnauthorizedWithCode { code: String, message: String },
+    ForbiddenWithCode { code: String, message: String },
     NotFound(String),
     Conflict(String),
+    RateLimited { retry_after: u64 },
+    NotImplemented { code: String, message: String },
+    ServiceUnavailable(String),
     Internal(String),
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let (status, error_type, message) = match self {
-            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg),
-            ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "unauthorized", msg),
-            ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, "forbidden", msg),
-            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg),
-            ApiError::Conflict(msg) => (StatusCode::CONFLICT, "conflict", msg),
-            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error", msg),
+        let (status, code, message, retry_after) = match self {
+            ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request".to_string(), msg, None),
+            ApiError::BadRequestWithCode { code, message } => (StatusCode::BAD_REQUEST, code, message, None),
+            ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "unauthorized".to_string(), msg, None),
+            ApiError::UnauthorizedWithCode { code, message } => (StatusCode::UNAUTHORIZED, code, message, None),
+            ApiError::ForbiddenWithCode { code, message } => (StatusCode::FORBIDDEN, code, message, None),
+            ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found".to_string(), msg, None),
+            ApiError::Conflict(msg) => (StatusCode::CONFLICT, "conflict".to_string(), msg, None),
+            ApiError::RateLimited { retry_after } => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limited".to_string(),
+                "Too many requests. Please try again later.".to_string(),
+                Some(retry_after),
+            ),
+            ApiError::NotImplemented { code, message } => (StatusCode::NOT_IMPLEMENTED, code, message, None),
+            ApiError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, "service_unavailable".to_string(), msg, None),
+            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error".to_string(), msg, None),
         };
 
         let body = Json(json!({
-            "error": error_type,
-            "message": message
+            "error": {
+                "code": code,
+                "message": message,
+            }
         }));
 
-        (status, body).into_response()
+        let mut response = (status, body).into_response();
+        if let Some(secs) = retry_after {
+            if let Ok(val) = axum::http::HeaderValue::from_str(&secs.to_string()) {
+                response.headers_mut().insert(axum::http::header::RETRY_AFTER, val);
+            }
+        }
+        response
     }
 }
 

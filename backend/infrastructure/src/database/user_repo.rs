@@ -12,20 +12,12 @@ use domain::models::user::UserRole;
 use domain::models::auth::TokenPurpose;
 
 fn user_role_to_str(role: &UserRole) -> &'static str {
-    match role {
-        UserRole::Customer => "Customer",
-        UserRole::Admin => "Admin",
-        UserRole::Moderator => "Moderator",
-    }
+    role.as_str()
 }
 
 fn str_to_user_role(role_str: &str) -> Result<UserRole, DomainError> {
-    match role_str {
-        "Customer" => Ok(UserRole::Customer),
-        "Admin" => Ok(UserRole::Admin),
-        "Moderator" => Ok(UserRole::Moderator),
-        _ => Err(DomainError::InvalidEnumValue(format!("Unknown user role: {}", role_str))),
-    }
+    UserRole::try_from(role_str)
+        .map_err(|e| DomainError::InvalidEnumValue(e))
 }
 
 fn token_purpose_to_str(purpose: &TokenPurpose) -> &'static str {
@@ -107,7 +99,7 @@ impl UserRepository for PgUserRepository {
         let row = sqlx::query(
             r#"
             SELECT id, email, COALESCE(email_normalized, LOWER(email)) AS email_normalized, name, role, 
-                   COALESCE(status, 'ACTIVE'::user_status_enum) AS status,
+                   COALESCE(status, 'ACTIVE') AS status,
                    COALESCE(auth_version, 0) AS auth_version,
                    email_verified_at, created_at, updated_at,
                    COALESCE(metadata, '{}'::jsonb) AS metadata
@@ -148,7 +140,7 @@ impl UserRepository for PgUserRepository {
         let row = sqlx::query(
             r#"
             SELECT id, email, COALESCE(email_normalized, LOWER(email)) AS email_normalized, name, role, 
-                   COALESCE(status, 'ACTIVE'::user_status_enum) AS status,
+                   COALESCE(status, 'ACTIVE') AS status,
                    COALESCE(auth_version, 0) AS auth_version,
                    email_verified_at, created_at, updated_at,
                    COALESCE(metadata, '{}'::jsonb) AS metadata

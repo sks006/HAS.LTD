@@ -1,12 +1,9 @@
 -- Migration 20261014000100_auth_schema.sql
 -- Forward-only migration implementing core identity, credentials, sessions, refresh tokens, MFA, and audit logging.
 
--- 1. Create credential kind enum and user status enum
+-- 1. Create credential kind enum
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_status_enum') THEN
-        CREATE TYPE user_status_enum AS ENUM ('ACTIVE', 'SUSPENDED', 'DELETED', 'PENDING');
-    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'credential_kind_enum') THEN
         CREATE TYPE credential_kind_enum AS ENUM ('password', 'social', 'webauthn');
     END IF;
@@ -15,9 +12,28 @@ END $$;
 -- 2. Alter users table additively to match authoritative specification
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS email_normalized VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS status user_status_enum NOT NULL DEFAULT 'ACTIVE',
+    ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'ACTIVE',
     ADD COLUMN IF NOT EXISTS auth_version BIGINT NOT NULL DEFAULT 0,
     ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+-- Ensure status is VARCHAR(50) if previously created with user_status_enum
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'users' AND column_name = 'status' AND udt_name = 'user_status_enum'
+    ) THEN
+        ALTER TABLE users ALTER COLUMN status TYPE VARCHAR(50) USING status::text;
+    END IF;
+END $$;
+
+-- Add CHECK constraint for users.status
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_users_status') THEN
+        ALTER TABLE users ADD CONSTRAINT chk_users_status CHECK (status IN ('ACTIVE', 'SUSPENDED', 'DELETED', 'PENDING'));
+    END IF;
+END $$;
 
 -- Backfill email_normalized from existing email
 UPDATE users
@@ -40,7 +56,7 @@ CREATE TABLE IF NOT EXISTS credentials (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     kind credential_kind_enum NOT NULL,
-    provider VARCHAR(50),
+    provider VARCHAR(50) NOT NULL DEFAULT 'local',
     provider_subject VARCHAR(255),
     secret_hash TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -48,9 +64,14 @@ CREATE TABLE IF NOT EXISTS credentials (
     CONSTRAINT uq_credentials_user_kind_provider UNIQUE (user_id, kind, provider)
 );
 
+-- Structural enforcement: provider NOT NULL DEFAULT 'local' to ensure UNIQUE constraint is airtight
+UPDATE credentials SET provider = 'local' WHERE provider IS NULL;
+ALTER TABLE credentials ALTER COLUMN provider SET DEFAULT 'local';
+ALTER TABLE credentials ALTER COLUMN provider SET NOT NULL;
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_credentials_provider_subject
     ON credentials (provider, provider_subject)
-    WHERE provider IS NOT NULL;
+    WHERE provider IS NOT NULL AND provider_subject IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_credentials_user_id
     ON credentials (user_id);

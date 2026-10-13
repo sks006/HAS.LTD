@@ -2,6 +2,7 @@ use axum::{extract::{State, Path}, http::StatusCode, Json};
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 use std::collections::HashMap;
+use crate::middleware::RequireAdmin;
 use crate::state::AppState;
 use crate::errors::ApiError;
 use rust_decimal::{Decimal, prelude::ToPrimitive};
@@ -65,6 +66,7 @@ fn parse_stock_incoming(desc: Option<&str>, default_stock: i32, default_incoming
 }
 
 pub async fn create_product(
+    _guard: RequireAdmin,
     State(state): State<AppState>,
     Json(payload): Json<CreateProductRequest>,
 ) -> Result<Json<ProductResponse>, ApiError> {
@@ -211,6 +213,7 @@ pub async fn get_product(
 }
 
 pub async fn update_product(
+    _guard: RequireAdmin,
     State(state): State<AppState>,
     Path(product_id): Path<Uuid>,
     Json(payload): Json<UpdateProductRequest>,
@@ -258,6 +261,7 @@ pub async fn update_product(
 }
 
 pub async fn delete_product(
+    _guard: RequireAdmin,
     State(state): State<AppState>,
     Path(product_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {

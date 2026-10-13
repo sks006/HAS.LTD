@@ -19,10 +19,18 @@ sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "uuid"
 uuid = { version = "1.7", features = ["v4", "serde"] }
 domain = { path = "../domain" }
 infrastructure = { path = "../infrastructure" }
+crypto = { path = "../crypto" }
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
 chrono = "0.4.45"
 tracing = "0.1"
+thiserror = "2"
 rust_decimal = { version = "1.42", features = ["serde"] }
 tower-http = { version = "0.6", features = ["cors"] }
+
+[dev-dependencies]
+http-body-util = "0.1"
+base64 = "0.22"
+tempfile = "3"
 
 [features]
 default = []

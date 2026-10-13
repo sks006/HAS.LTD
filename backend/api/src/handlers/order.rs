@@ -3,13 +3,12 @@ use axum::{
     Json,
 };
 use uuid::Uuid;
-use validator::Validate;
 use serde::Serialize;
 
 use crate::{
     dtos::UpdateOrderStatusDto,
     errors::ApiError,
-    middleware::RequireModeratorOrAdmin,
+    middleware::{RequireAdmin, RequireCustomer, RequireModerator},
     state::AppState,
 };
 
@@ -54,6 +53,7 @@ pub struct OrderRecordDto {
 
 /// Retrieve all orders for dashboard/admin listing.
 pub async fn list_orders(
+    _guard: RequireModerator,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<OrderRecordDto>>, ApiError> {
     let order_repo = PgOrderRepository::new(state.db_pool.clone());
@@ -108,6 +108,7 @@ pub async fn list_orders(
 
 /// Retrieve details for a specific order, including its items.
 pub async fn get_order(
+    _guard: RequireCustomer,
     State(state): State<AppState>,
     Path(order_id): Path<Uuid>,
 ) -> Result<Json<OrderDetailsResponse>, ApiError> {
@@ -123,6 +124,7 @@ pub async fn get_order(
 
 /// Update the status/state of an order with optimistic concurrency control (version).
 pub async fn update_order_status(
+    _guard: RequireModerator,
     State(state): State<AppState>,
     Path(order_id): Path<Uuid>,
     Json(payload): Json<UpdateOrderStatusDto>,
@@ -139,6 +141,7 @@ pub async fn update_order_status(
 
 /// Delete an order and its items by ID.
 pub async fn delete_order(
+    _guard: RequireAdmin,
     State(state): State<AppState>,
     Path(order_id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ApiError> {

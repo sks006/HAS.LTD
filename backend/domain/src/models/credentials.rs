@@ -17,7 +17,7 @@ pub struct Credentials {
     pub id: CredentialId,
     pub user_id: UserId,
     pub kind: CredentialKind,
-    pub provider: Option<String>,
+    pub provider: String,
     pub provider_subject: Option<String>,
     pub secret_hash: Option<String>,
     pub created_at: DateTime<Utc>,

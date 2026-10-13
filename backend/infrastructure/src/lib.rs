@@ -5,3 +5,5 @@ pub mod database;
 pub mod security;
 pub mod storage;
 pub mod payment;
+pub mod config;
+pub mod tracing;
