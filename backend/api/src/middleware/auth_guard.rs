@@ -115,6 +115,21 @@ pub async fn authenticate_request(
     parts: &mut Parts,
     state: &AppState,
 ) -> Result<AuthenticatedUser, AuthRejection> {
+    let start = std::time::Instant::now();
+    let res = authenticate_token_with_scopes(parts, state, &["access"]).await;
+    if res.is_ok() {
+        let elapsed = start.elapsed().as_secs_f64();
+        METRICS.histogram_observe("auth_middleware_latency_seconds", elapsed);
+        METRICS.counter_inc("auth_middleware_requests_total");
+    }
+    res
+}
+
+pub async fn authenticate_token_with_scopes(
+    parts: &mut Parts,
+    state: &AppState,
+    allowed_scopes: &[&str],
+) -> Result<AuthenticatedUser, AuthRejection> {
     // Check if user has already been authenticated in this request (extension cache)
     if let Some(user) = parts.extensions.get::<Arc<AuthenticatedUser>>() {
         return Ok((**user).clone());
@@ -165,22 +180,32 @@ pub async fn authenticate_request(
     // 3. Verify RS256 signature and standard claims (exp, nbf, iss, aud) via JwtKeys
     let claims = match state.jwt_keys.verify_access_token(token) {
         Ok(c) => c,
-        Err(e) => {
-            let err_msg = e.to_string();
-            if err_msg.contains("expired") || err_msg.contains("not yet valid") || err_msg.contains("nbf") {
+        Err(crypto::errors::CryptoError::Jwt(e)) => match e.kind() {
+            jsonwebtoken::errors::ErrorKind::ExpiredSignature
+            | jsonwebtoken::errors::ErrorKind::ImmatureSignature => {
                 METRICS.counter_inc_labeled("auth_middleware_rejection_total", "reason", "token_expired");
                 return Err(AuthRejection::token_expired());
-            } else {
-                METRICS.counter_inc_labeled("auth_middleware_rejection_total", "reason", "invalid_token");
-                return Err(AuthRejection::invalid_token("Invalid token signature or key"));
             }
+            _ => {
+                METRICS.counter_inc_labeled("auth_middleware_rejection_total", "reason", "invalid_token");
+                return Err(AuthRejection::invalid_token("Invalid token"));
+            }
+        },
+        Err(_) => {
+            METRICS.counter_inc_labeled("auth_middleware_rejection_total", "reason", "invalid_token");
+            return Err(AuthRejection::invalid_token("Invalid token"));
         }
     };
 
-    // 4. Enforce scope == "access"
-    if claims.scope != "access" {
+    // 4. Enforce scope in allowed_scopes
+    if !allowed_scopes.contains(&claims.scope.as_str()) {
         METRICS.counter_inc_labeled("auth_middleware_rejection_total", "reason", "invalid_token");
-        return Err(AuthRejection::invalid_token("Token scope must be 'access'"));
+        let msg = if allowed_scopes == &["access"] {
+            "Token scope must be 'access'"
+        } else {
+            "Token scope must be 'access' or 'mfa_enrollment'"
+        };
+        return Err(AuthRejection::invalid_token(msg));
     }
 
     let user_uuid = match Uuid::parse_str(&claims.sub) {
@@ -219,8 +244,10 @@ pub async fn authenticate_request(
         .await
         .map_err(|e| {
             tracing::error!("Database query error during auth check: {:?}", e);
+            METRICS.counter_inc_labeled("auth_middleware_rejection_total", "reason", "internal_error");
             AuthRejection::internal_error()
         })?;
+        state.count_db_query();
 
         match row {
             Some((db_version, db_status)) => {
@@ -240,17 +267,17 @@ pub async fn authenticate_request(
         }
     }
 
-    // 6. Check auth_version mismatch
-    if claims.auth_version != live_auth_version.unwrap() {
-        METRICS.counter_inc_labeled("auth_middleware_rejection_total", "reason", "token_revoked");
-        return Err(AuthRejection::token_revoked());
-    }
-
-    // 7. Check user status == ACTIVE
+    // 6. Check user status == ACTIVE [FIX-H1]
     let status_str = live_status.unwrap();
     if status_str != "ACTIVE" {
         METRICS.counter_inc_labeled("auth_middleware_rejection_total", "reason", "account_suspended");
         return Err(AuthRejection::account_suspended());
+    }
+
+    // 7. Check auth_version mismatch
+    if claims.auth_version != live_auth_version.unwrap() {
+        METRICS.counter_inc_labeled("auth_middleware_rejection_total", "reason", "token_revoked");
+        return Err(AuthRejection::token_revoked());
     }
 
     let role = UserRole::try_from(claims.role.as_str()).map_err(|_| {
@@ -258,7 +285,7 @@ pub async fn authenticate_request(
         AuthRejection::invalid_token("Unknown role in token claims")
     })?;
 
-    let session_id = SessionId(claims.jti);
+    let session_id = SessionId(claims.sid);
 
     let authenticated_user = AuthenticatedUser {
         user_id,
@@ -268,9 +295,11 @@ pub async fn authenticate_request(
         jti: claims.jti,
     };
 
-    // Attach to request extensions for downstream extractors/handlers
-    let user_arc = Arc::new(authenticated_user.clone());
-    parts.extensions.insert(user_arc);
+    // Attach to request extensions for downstream extractors/handlers (only for standard access scope)
+    if claims.scope == "access" {
+        let user_arc = Arc::new(authenticated_user.clone());
+        parts.extensions.insert(user_arc);
+    }
 
     Ok(authenticated_user)
 }
@@ -301,6 +330,32 @@ where
         let app_state = AppState::from_ref(state);
         let user = authenticate_request(parts, &app_state).await?;
         Ok(AuthUser(user))
+    }
+}
+
+/// Extractor for MFA enrollment endpoints (/auth/mfa/totp/enroll and /auth/mfa/totp/verify).
+/// Accepts tokens with scope == "access" OR scope == "mfa_enrollment".
+#[derive(Debug, Clone)]
+pub struct MfaEnrollAuthUser(pub AuthenticatedUser);
+
+impl Deref for MfaEnrollAuthUser {
+    type Target = AuthenticatedUser;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<S> FromRequestParts<S> for MfaEnrollAuthUser
+where
+    S: Send + Sync,
+    AppState: FromRef<S>,
+{
+    type Rejection = AuthRejection;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let app_state = AppState::from_ref(state);
+        let user = authenticate_token_with_scopes(parts, &app_state, &["access", "mfa_enrollment"]).await?;
+        Ok(MfaEnrollAuthUser(user))
     }
 }
 
@@ -390,5 +445,45 @@ where
                 Err(AuthRejection::permission_denied())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crypto::errors::CryptoError;
+    use jsonwebtoken::errors::{Error as JwtError, ErrorKind};
+
+    fn map_jwt_error_to_rejection(err: &CryptoError) -> AuthRejection {
+        match err {
+            CryptoError::Jwt(e) => match e.kind() {
+                ErrorKind::ExpiredSignature | ErrorKind::ImmatureSignature => {
+                    AuthRejection::token_expired()
+                }
+                _ => AuthRejection::invalid_token("Invalid token"),
+            },
+            _ => AuthRejection::invalid_token("Invalid token"),
+        }
+    }
+
+    #[test]
+    fn test_error_kind_mapping_to_auth_rejection() {
+        let expired = CryptoError::Jwt(JwtError::from(ErrorKind::ExpiredSignature));
+        assert_eq!(map_jwt_error_to_rejection(&expired).code, "token_expired");
+
+        let immature = CryptoError::Jwt(JwtError::from(ErrorKind::ImmatureSignature));
+        assert_eq!(map_jwt_error_to_rejection(&immature).code, "token_expired");
+
+        let invalid_sig = CryptoError::Jwt(JwtError::from(ErrorKind::InvalidSignature));
+        assert_eq!(map_jwt_error_to_rejection(&invalid_sig).code, "invalid_token");
+
+        let invalid_iss = CryptoError::Jwt(JwtError::from(ErrorKind::InvalidIssuer));
+        assert_eq!(map_jwt_error_to_rejection(&invalid_iss).code, "invalid_token");
+
+        let invalid_aud = CryptoError::Jwt(JwtError::from(ErrorKind::InvalidAudience));
+        assert_eq!(map_jwt_error_to_rejection(&invalid_aud).code, "invalid_token");
+
+        let missing_kid = CryptoError::MissingKeyId;
+        assert_eq!(map_jwt_error_to_rejection(&missing_kid).code, "invalid_token");
     }
 }

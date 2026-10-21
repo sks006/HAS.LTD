@@ -17,6 +17,9 @@ pub enum CryptoError {
     TokenGenerationFailed(String),
 
     #[error("JWT error: {0}")]
+    Jwt(#[from] jsonwebtoken::errors::Error),
+
+    #[error("JWT error: {0}")]
     JwtError(String),
 
     #[error("JWT header missing key ID (kid)")]

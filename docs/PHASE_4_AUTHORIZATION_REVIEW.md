@@ -188,7 +188,7 @@ The following table defines the authoritative routing contract:
 
 ### j) Testing Strategy
 
-* **Decision:** Test environment against running PostgreSQL (`127.0.0.1:5432`) and Redis (`127.0.0.1:6379`) with dynamic test-prefixed key isolation (`test:{test_id}:*`) and unique test users (`test_{uuid}@has.ltd`).
+* **Decision:** Test environment against running PostgreSQL (`127.0.0.1:5442`) and Redis (`127.0.0.1:6399`) with dynamic test-prefixed key isolation (`test:{test_id}:*`) and unique test users (`test_{uuid}@has.ltd`).
 * **Why Better:**
   - Avoids ~15s docker startup latency per test binary while retaining authentic PostgreSQL and Redis behavior.
   - Key prefixing guarantees isolation without flushing developer keys in shared development environments.

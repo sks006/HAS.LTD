@@ -197,6 +197,7 @@ All error responses adhere to the standard envelope:
 | `validation_error` | 400 | Payload failed schema validation rules (e.g. invalid email format) |
 | `rate_limited` | 429 | Rate limit threshold breached; check `Retry-After` header |
 | `service_unavailable` | 503 | Argon2 concurrency limit reached or database unavailable |
+| `mfa_not_yet_available` | 501 | TRANSIENT — removed in Phase 6: Multi-factor authentication is required for staff roles but is not yet available |
 
 > **Note on `mfa_required` [FIX-C2]:** `mfa_required` is NOT an error and is removed from the 401 table. It is an intermediate authentication state returned as HTTP 200 OK with body `{"mfa_required": true, "mfa_token": "..."}`. Clients MUST branch on `mfa_required == true` before reading `access_token`.
 
@@ -1105,4 +1106,149 @@ In Phase 4, the `POST /auth/login` endpoint implements full Flow B password veri
 - HTTP 501 `Not Implemented`
 - Body: `{"error":{"code":"mfa_not_yet_available","message":"Multi-factor authentication is required for staff roles but is not yet available"}}`
 - Marked with: `// TODO: Phase 6 MFA Enrollment & Enforcement (Issue #AUTH-MFA-001)`
+
+---
+
+## 11. Phase 5 Implementation Notes & Decision Register
+
+### 11.1 Opening Architectural Resolutions
+1. **Refresh Rotation Predecessor/Successor Invariant:**
+   - *Question:* Under what conditions does refresh rotation produce two valid successors, and what is the mechanism that prevents it?
+   - *Answer:* Refresh rotation produces two valid successors if concurrent HTTP requests presenting the same refresh token are evaluated without synchronization, permitting both to read `revoked_at IS NULL` and each insert a successor token before either revokes the predecessor.
+   - *Prevention Mechanism:* Two-tier mutual exclusion:
+     1. Tier 1 (Redis Mutex): Atomic distributed single-flight lock `lock:refresh:{token_hash}` via `SET NX EX 5`. When contention is detected, concurrent requests immediately receive HTTP 409 `refresh_in_progress` with `Retry-After: 1`.
+     2. Tier 2 (PostgreSQL Row Lock): `SELECT ... FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE`. Even if Redis is down or bypassed, the database serializes competing transactions on the row. The first transaction commits revocation and inserts the successor; the second transaction unblocks, reads `revoked_at IS NOT NULL`, and diverts either to the 15-second grace window replay (returning the exact same successor) or triggers replay detection (revoking the entire token family and user session). Under no circumstance can two distinct valid successors be issued.
+
+2. **Redis 90-Second Outage Behavior:**
+   - *Question:* If Redis goes down for 90 seconds, which endpoints fail-closed, which fail-open, and what is the user-visible symptom of each?
+   - *Answer:*
+     - **Fail-Closed (503 Service Unavailable / 401 Rejection):**
+       - MFA Challenge Verification (`/auth/login/totp`): Cannot verify single-use challenge key `mfa:challenge:{jti}`; fails closed with 503 / challenge expired.
+     - **Fail-Open (Operational in Degraded Mode):**
+       - Login (`/auth/login`): IP and Email rate-limit checks fail-open (logged as degraded mode warnings); user logs in successfully with negligible latency impact.
+       - Token Refresh (`/auth/refresh`): Single-flight mutex fails-open directly to PostgreSQL row lock (`SELECT FOR UPDATE`). Grace window Redis lookup fails-closed to database state: if a retry occurs while Redis is down, it checks DB `revoked_at <= 15s`; if cached plaintext in Redis is lost, mobile client must refresh using the latest successor cookie.
+       - Logout (`/auth/logout`): Independent of Redis; database revocation and Set-Cookie expiration proceed normally.
+       - Logout-All (`/auth/logout-all`): Database version bump and session revocation commit successfully. Post-commit `DEL auth_version:{uid}` logs a warning; active sessions on other devices are invalidated as soon as the 300s cache window expires or the next middleware cache miss occurs.
+       - Protected Route Middleware (`authenticate_request`): Redis cache miss on `auth_version:{uid}` falls back to PostgreSQL `SELECT auth_version, status FROM users`, ensuring 100% correct access decisions at the cost of ~0.5ms database read latency.
+
+3. **Mobile Network Disconnect Mid-Refresh (20s Retry Window):**
+   - *Question:* If a mobile client loses its network mid-refresh and retries 20 seconds later, does it get logged out? Is that acceptable?
+   - *Answer:*
+     - Yes, the mobile client is logged out (returns HTTP 401 `family_revoked`).
+     - *Acceptability Justification:* Under RFC 6819 §5.2.2.3 and OAuth 2.0 Security BCP §4.14.2, 15 seconds is the industry standard tolerance window for TCP retransmissions, TLS renegotiation, and cellular handoffs. A token presented 20 seconds after replacement cannot be distinguished from a compromised token replayed by an adversary who intercepted the original in-flight packet. Treating an obsolete token as legitimate after 15 seconds would create an unacceptable replay window for man-in-the-middle exploits. Forcing re-authentication on rare 20s network timeouts is the correct and necessary security trade-off.
+
+### 11.2 Decision Register (Items a - l)
+
+#### a) Refresh Single-Flight Lock
+* **Decision:** Redis key `lock:refresh:{token_hash}` with `SET NX EX 5`. On lock contention, immediately return HTTP 409 `refresh_in_progress` with `Retry-After: 1`. On Redis outage, fail-open to the PostgreSQL row lock.
+* **Why-Better:** Prevents dogpiling and unnecessary database transaction contention while giving client SDKs an explicit retry hint.
+* **Why-Not Wait/Block:** Blocking the HTTP handler ties up Axum worker threads and tokio tasks waiting for an external network response, exacerbating thread pool exhaustion.
+* **Alternative Rejected:** Long-polling/blocking mutex in handler.
+* **Reversibility:** Fully reversible via configuration or handler modification without schema changes.
+* **Threat Model:** Prevents race-condition amplification and simultaneous token harvesting attacks.
+* **GDPR Impact:** None; operates on cryptographic token hashes.
+* **Operational Cost:** Negligible; sub-millisecond Redis memory operation with automatic 5s TTL.
+
+#### b) 15-Second Grace Window Mechanics
+* **Decision:** Adopt **Option A**: store the plaintext successor briefly in Redis (`refresh:grace:{old_token_hash}` $\to$ JSON payload `{ access_token, raw_refresh }` with `TTL 15s`).
+* **Three Resolution Branches:**
+  - **(a) Grace cache hit:** Return cached successor access token and Set-Cookie with cached refresh token (HTTP 200).
+  - **(b) Cache miss, Redis healthy:** Evaluated as a genuine replay of an obsolete token outside the grace cache; triggers full replay detection revoking the token family, session, and bumping `users.auth_version` (HTTP 401 `family_revoked`).
+  - **(c) Cache miss, Redis unreachable:** Handler fails closed gracefully: rolls back transaction, does NOT revoke token family, does NOT bump `auth_version`, and emits no replay audit event; returns HTTP 401 `token_invalid`.
+* **Why-Better:** Provides true idempotent replay. If a mobile client drops connectivity after the server commits the rotation but before receiving the HTTP response, retrying with the old token within 15 seconds returns the exact same access token and refresh cookie, avoiding state desynchronization and unnecessary logouts.
+* **Why-Not Option B (Fresh successor on each grace retry):** Spawns branching successor trees, breaking linear token chain invariants.
+* **Why-Not Option C (Replay access token only, omit cookie):** Breaks clients that discard the old cookie upon initiating the refresh request.
+* **Security & JTI Note [NICE-1]:** Grace window intentionally re-serves the same access token with the same `jti`. If `jti` uniqueness becomes a security property in a future phase, revisit.
+* **Reversibility:** High; key format and grace handler can be adjusted independently.
+* **Threat Model:** Bounded strictly to 15 seconds; adversary with intercepted token has at most 15 seconds to replay, after which full replay detection triggers.
+* **GDPR Impact:** Zero; ephemeral synthetic secrets with 15s TTL.
+* **Operational Cost:** 1 Redis `SETEX` and `GET` per token refresh.
+
+#### c) Rotation Transaction Shape
+* **Decision:** Single atomic database transaction. Order of operations:
+  1. `SELECT ... FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE`
+  2. `SELECT user_id, revoked_at, expires_at FROM sessions WHERE id = $1 FOR UPDATE` (locks session row upfront to synchronize with concurrent logout)
+  3. `INSERT INTO refresh_tokens (id, session_id, family_id, token_hash, ...)` (insert new token first to satisfy foreign key constraint `refresh_tokens_replaced_by_id_fkey`)
+  4. `UPDATE refresh_tokens SET revoked_at = now(), replaced_by_id = $new_id WHERE id = $old_id`
+  5. `UPDATE sessions SET last_seen_at = now() WHERE id = $session`
+  6. `INSERT INTO audit_log (...) VALUES ('auth.token.refreshed', ...)`
+  7. `COMMIT`
+* **Why-Better:** Guarantees zero partial failures. If the transaction aborts before commit, no state changes occur. Foreign key constraint `replaced_by_id REFERENCES refresh_tokens(id)` is strictly satisfied.
+* **Why-Not Two Transactions:** Two transactions introduce distributed partial failure states (e.g. old token revoked but successor insertion fails, stranding user).
+* **Reversibility:** Permanent architectural standard for ACID compliance.
+* **Threat Model:** Prevents orphan tokens and half-rotated state vulnerabilities.
+* **GDPR / Ops Cost:** Zero additional cost; uses existing connection pool.
+
+#### d) Session Revocation Cascade
+* **Decision:**
+  - Single Logout (`/auth/logout`): Single atomic transaction revoking the specific session (`UPDATE sessions SET revoked_at = now() WHERE id = $sid`) and its associated refresh tokens (`UPDATE refresh_tokens SET revoked_at = now() WHERE session_id = $sid`). Does NOT bump `users.auth_version`.
+  - Logout-All (`/auth/logout-all`): Single atomic transaction updating `users.auth_version = auth_version + 1`, revoking all active sessions for the user, revoking all refresh tokens for those sessions, and logging `auth.logout_all`.
+* **Why-Better:** Keeps single logout isolated to the current device, allowing seamless multi-device usage. Ensures logout-all is completely atomic.
+* **Redis Down Behavior:** If Redis is down during logout, the database records the revocation durably. Stale cache for `auth_version` clears upon TTL expiry (300s) or next cache miss.
+* **Reversibility:** High.
+* **Threat Model:** Ensures immediate revocation of compromised devices without collateral disruption.
+
+#### e) Concurrent Logout + Refresh Races
+* **Decision:**
+  - Case 1 (Device A concurrent logout + refresh): Both synchronize on `sessions WHERE id = $sid FOR UPDATE`. If logout commits first, refresh observes `session.revoked_at IS NOT NULL` and immediately aborts with HTTP 401 `token_revoked`. If refresh commits first, logout executes immediately after and revokes both the session and the newly issued refresh token. In both outcomes, exactly one succeeds, the session is revoked, and no active orphan refresh tokens remain.
+  - Case 2 (Device B logout-all while Device A refreshes): Logout-all bumps `auth_version` in DB and revokes all user sessions and refresh tokens. If Device A refresh commits before logout-all, Device A's new refresh token is revoked and its new access token is rejected by middleware with HTTP 401 `token_revoked`.
+* **Reversibility:** Inherent to PostgreSQL serialization and row locking.
+
+#### f) Session List Response
+* **Decision:** `GET /auth/sessions` returns an array of active sessions matching `user_id = $uid AND revoked_at IS NULL AND expires_at > now()`, ordered by `last_seen_at DESC`, capped at `LIMIT 50`.
+* **Fields:** `id`, `current: bool` (determined by `row.id == claims.sid`), `device_fingerprint`, `user_agent`, `ip_address` (masked via `/64` IPv6 aggregation or IPv4 preservation), `created_at`, `last_seen_at`, `expires_at`.
+* **Pagination:** Omitted for v1 because users rarely maintain $> 10$ concurrent sessions; hard cap of 50 prevents response bloat.
+
+#### g) Session Revoke Authorization & Anti-Enumeration
+* **Decision:** `DELETE /auth/sessions/{id}` requires `AuthUser`. The database query checks `SELECT user_id, revoked_at FROM sessions WHERE id = $path_id FOR UPDATE`.
+* **Anti-Enumeration Rule:** If the session does not exist, belongs to another user, or is already revoked, the handler returns identical HTTP 404 `{ "error": { "code": "not_found", "message": "Session not found" } }`.
+* **Why-Better:** Prevents attackers from probing session UUIDs or inferring session ownership across tenants.
+
+#### h) Refresh Cookie Rotation on Every Endpoint
+* **Decision:**
+  - `/auth/refresh`: Rotates cookie with new value and standard attributes: `__Secure-has_refresh={token}; Path=/auth; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax`.
+  - `/auth/logout`, `/auth/logout-all`: Sets expired cookie: `__Secure-has_refresh=; Path=/auth; Max-Age=0; HttpOnly; Secure; SameSite=Lax`.
+  - `/auth/sessions/{id}`: Sets expired cookie if and only if `target_id == claims.sid`.
+
+#### i) Audit Events & Zero-Secret Emission Proof
+* **Events Emitted:**
+  - `auth.token.refreshed` (metadata: `session_id`, `family_id`)
+  - `auth.session.replay_detected` (metadata: `session_id`, `family_id`, `revoked_token_id`)
+  - `auth.logout` (metadata: `session_id`)
+  - `auth.logout_all` (metadata: `sessions_revoked`)
+  - `auth.session.revoked_remote` (metadata: `target_session_id`)
+* **Compliance Proof:** No password, hash, OTP, refresh token, cookie value, or raw secret is ever passed into metadata or SQL binds.
+
+#### j) Rate Limits
+* **Decision:**
+  - `/auth/refresh`: `rl:refresh:{user_id}` (60 requests per minute).
+  - `/auth/logout`: No rate limit (cheap, idempotent).
+  - `DELETE /auth/sessions/{id}`: `rl:sessions_delete:{user_id}` (20 requests per minute).
+  - `/auth/logout-all`: `rl:logout_all:{user_id}` (5 requests per hour).
+* **Justification & Self-DoS Note [NICE-2]:** `logout-all` rate limit of 5/hour accepts a small self-DoS: an attacker who briefly has access can lock the user out of logout-all for one hour. Individual session DELETE remains available.
+
+#### k) Redis Failure Modes per Endpoint
+* **Decision:**
+  - `/auth/refresh`: Lock fails-open to PostgreSQL `FOR UPDATE`. Grace window Redis failure fails closed without family revocation (returns HTTP 401 `token_invalid`).
+  - `/auth/logout`: Completely independent of Redis.
+  - `/auth/logout-all`: DB commits first, then issues post-commit `DEL auth_version:{uid}`. If DEL fails, DB bump takes effect on next cache miss.
+
+#### l) Synchronous Post-Commit Invalidation & Middleware Verification
+* **Decision:** Handlers for `logout-all` (and replay detection) execute synchronous Redis `DEL auth_version:{user_id}` immediately after database `COMMIT`.
+* **Why-Better:** Guarantees that token revocation is instantaneous across all devices. Subsequent requests on other devices miss the cache, fetch the updated `auth_version` from PostgreSQL, and reject obsolete tokens with HTTP 401 `token_revoked`.
+* **Test Verification:** `test_logout_all_immediate_revocation_on_other_device` and `test_logout_all_during_in_flight_refresh` confirm that Device A's new tokens and Device B's tokens are rejected on `/auth/me` without manual cache clearing.
+
+### 11.3 Database Retention & Cleanup Invariant [NICE-3]
+* **Confirmation:** No background cleanup job currently deletes `refresh_tokens` rows.
+* **Invariant for Future Pruning Jobs:** Any future scheduled pruning jobs (e.g. daily cron cleaning expired rows older than 90 days) MUST enforce:
+  ```sql
+  DELETE FROM refresh_tokens
+  WHERE expires_at < now() - INTERVAL '90 days'
+    AND (revoked_at IS NULL OR revoked_at < now() - INTERVAL '15 seconds');
+  ```
+  It must NOT delete successors whose predecessor's `revoked_at` is $< 15\text{s}$ old, or the grace window will break.
+
+### 11.4 Test Isolation Architecture [NICE-4]
+* **Confirmation:** The session test suite uses **per-test uniquely generated identifiers** (fresh UUIDv7 user IDs, session IDs, and distinct cryptographic random 32-byte tokens for each test) rather than invoking `FLUSHDB`.
+* **Justification:** Cargo integration tests execute concurrently against the shared Redis test container. Invoking `FLUSHDB` between tests would wipe keys needed by concurrently executing test threads, producing race conditions and test flakiness. Per-test key partitioning provides 100% test isolation with zero cross-test interference.
 

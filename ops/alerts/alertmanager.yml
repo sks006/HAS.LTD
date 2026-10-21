@@ -1,0 +1,27 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default'
+  routes:
+    - match:
+        severity: page
+      receiver: 'pager-stub'
+    - match:
+        severity: ticket
+      receiver: 'ticket-stub'
+
+receivers:
+  - name: 'default'
+    webhook_configs:
+      - url: 'http://localhost:9093/stub'
+  - name: 'pager-stub'
+    webhook_configs:
+      - url: 'http://localhost:9093/stub/pager'
+  - name: 'ticket-stub'
+    webhook_configs:
+      - url: 'http://localhost:9093/stub/ticket'

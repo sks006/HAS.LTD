@@ -8,6 +8,7 @@ set -euo pipefail
 SECRETS_DIR=".secrets"
 JWT_DIR="${SECRETS_DIR}/jwt"
 TOTP_KEY="${SECRETS_DIR}/totp.key"
+EMAIL_PEPPER="${SECRETS_DIR}/email.pepper"
 GITIGNORE=".gitignore"
 
 echo "=== HAS.LTD Cryptographic Secrets Initialization ==="
@@ -47,14 +48,25 @@ openssl pkey -in "${JWT_DIR}/2.pem" -pubout -out "${JWT_DIR}/2.pub.pem" 2>/dev/n
 
 # 5. Generate 32-byte master key for AES-256-GCM TOTP secret encryption at rest
 echo "Generating 32-byte master key for TOTP encryption at rest..."
-openssl rand -out "${TOTP_KEY}" 32
+if [ ! -f "${TOTP_KEY}" ]; then
+    openssl rand -out "${TOTP_KEY}" 32
+fi
 
-# 6. Apply strict file permissions
-chmod 0600 "${JWT_DIR}/1.pem"
-chmod 0644 "${JWT_DIR}/1.pub.pem"
-chmod 0600 "${JWT_DIR}/2.pem"
-chmod 0644 "${JWT_DIR}/2.pub.pem"
+# 6. Generate 32-byte pepper for OTP hashing
+echo "Generating 32-byte pepper for email OTP hashing..."
+if [ -f "${EMAIL_PEPPER}" ]; then
+    echo "Notice: '${EMAIL_PEPPER}' already exists. Refusing to overwrite."
+else
+    openssl rand -out "${EMAIL_PEPPER}" 32
+fi
+
+# 7. Apply strict file permissions
+chmod 0600 "${JWT_DIR}/1.pem" 2>/dev/null || true
+chmod 0644 "${JWT_DIR}/1.pub.pem" 2>/dev/null || true
+chmod 0600 "${JWT_DIR}/2.pem" 2>/dev/null || true
+chmod 0644 "${JWT_DIR}/2.pub.pem" 2>/dev/null || true
 chmod 0600 "${TOTP_KEY}"
+chmod 0600 "${EMAIL_PEPPER}"
 
 echo ""
 echo "=== Secrets Successfully Initialized ==="
