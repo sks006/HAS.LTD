@@ -1,5 +1,10 @@
 [workspace]
-members = ["backend/api", "backend/domain", "backend/infrastructure"]
+members = [
+    "backend/api",
+    "backend/domain",
+    "backend/infrastructure",
+    "backend/crypto",
+]
 resolver = "2"
 
 [workspace.package]

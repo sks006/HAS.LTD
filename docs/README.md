@@ -131,3 +131,10 @@ The frontend leverages a modular structure targeting separation between storefro
 - **`src/storefront/`**: Customer-facing shopping views, product listing filters, and cart controls.
 - **`src/shared/`**: Common assets, global state management definitions, data conversion utilities, and central HTTP configurations.
 - **`src/components/` & `src/hooks/`**: Global UI libraries and custom React hooks.
+
+---
+
+## 7. Architecture Decisions & Technical Debt Register
+
+For detailed records on architectural tradeoffs, decisions (e.g. `VARCHAR` + `CHECK` constraint design vs Postgres `ENUM`), and technical debt tracking, see:
+* [Architectural Decisions & Technical Debt Register](DECISIONS_AND_DEBT.md)

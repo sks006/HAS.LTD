@@ -1,0 +1,54 @@
+[package]
+name = "crypto"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Argon2id password hashing - pinned exact version for cryptographic stability
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "password-hash", "rand"] }
+password-hash = { version = "0.5.0", default-features = false, features = ["alloc", "rand_core"] }
+
+# Cryptographic random number generation
+rand = "0.8.5"
+
+# Digest & HMAC primitives
+sha2 = "0.10.8"
+hmac = "0.12.1"
+hex = "0.4.3"
+
+# JWT RS256 token signing and verification
+jsonwebtoken = { version = "9.3.1", features = ["use_pem"] }
+
+# Identifiers
+uuid = { version = "1.7.0", features = ["v4", "v7", "serde"] }
+
+# Encoding
+base64 = "0.22.1"
+
+# Constant-time comparison
+subtle = "2.6.1"
+
+# Memory wiping
+zeroize = { version = "1.8.1", features = ["derive"] }
+
+# TOTP RFC 6238 implementation
+totp-rs = { version = "5.6.0", features = ["gen_secret", "qr"] }
+
+# Authenticated Encryption with Associated Data (AEAD) for TOTP secret at rest
+aes-gcm = "0.10.3"
+
+# Errors and Serialization
+thiserror = "1.0.63"
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json = "1.0"
+
+# Async & Blocking tasks
+tokio = { version = "1.0", features = ["sync", "rt", "macros"] }
+
+# Configuration loading
+figment = { version = "0.10.19", features = ["env", "toml"] }
+
+[dev-dependencies]
+tempfile = "3.10"
+tokio = { version = "1.0", features = ["full", "test-util"] }
+rsa = "0.9"

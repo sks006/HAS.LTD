@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::{
     dtos::CheckoutRequestDto,
     errors::ApiError,
-    middleware::IdempotencyExtractor,
+    middleware::{IdempotencyExtractor, RequireCustomer},
     state::AppState,
 };
 
@@ -26,6 +26,7 @@ pub struct CheckoutResponse {
 }
 
 pub async fn checkout(
+    _guard: RequireCustomer,
     State(state): State<AppState>,
     IdempotencyExtractor(idempotency_key): IdempotencyExtractor,
     Json(payload): Json<CheckoutRequestDto>,

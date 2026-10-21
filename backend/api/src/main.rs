@@ -1,11 +1,6 @@
-pub(crate) mod dtos;
-pub(crate) mod errors;
-pub(crate) mod middleware;
-pub(crate) mod handlers;
-pub(crate) mod routes;
-pub(crate) mod state;
+// backend/api/src/main.rs
 
-use crate::{ routes::build_router, state::AppState };
+use api::{routes::build_router, state::AppState};
 
 #[tokio::main]
 async fn main() {
