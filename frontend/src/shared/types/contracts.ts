@@ -13,6 +13,8 @@ export type ProductDto = {
   sale: boolean;
   rating: number;
   reviews: number;
+  stock?: number;
+  incoming?: number;
 };
 
 export type InventoryItemDto = {
@@ -28,7 +30,15 @@ export type InventoryItemDto = {
   image?: string;
 };
 
-export type OrderState = 'Pending' | 'Processing' | 'Delivered' | 'Returned' | 'Cancelled';
+export type OrderState =
+  | 'Pending'
+  | 'Reserved'
+  | 'Paid'
+  | 'Shipped'
+  | 'Cancelled'
+  | 'Processing'
+  | 'Delivered'
+  | 'Returned';
 
 export type AddressDto = {
   recipient_name: string;
@@ -80,4 +90,7 @@ export type AuthUser = {
   id: Uuid;
   email: string;
   role: Role;
+  name?: string;
+  status?: string;
+  email_verified?: boolean;
 };

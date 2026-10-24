@@ -12,10 +12,29 @@ import {
   Search,
   ShieldCheck,
   Trash2,
-  X,
   Loader2,
 } from 'lucide-react';
-import Button from '@/shared/ui/Button';
+import { Button } from '@/shared/ui/button';
+import { Badge } from '@/shared/ui/badge';
+import { Input } from '@/shared/ui/input';
+import { Card, CardContent } from '@/shared/ui/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '@/shared/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/shared/ui/dialog';
+import { Label } from '@/shared/ui/label';
 import type { InventoryItemDto } from '@/shared/types/contracts';
 import { can, Role } from '@/shared/types/roles';
 import { useRootStore } from '@/slicers/root_store';
@@ -29,48 +48,38 @@ const roleLabel: Record<Role, string> = {
 };
 
 export function AccessControlMatrix() {
-  useProducts(); // Fetch live products from backend database
+  const productsQuery = useProducts();
   const deleteMutation = useDeleteProduct();
-  const removeInventoryItem = useRootStore((s) => s.removeInventoryItem);
-  const removeProduct = useRootStore((s) => s.removeProduct);
 
   const user = useRootStore((s) => s.user);
-  const setRole = useRootStore((s) => s.setRole);
   const inventory = useRootStore((s) => s.inventory);
   const [search, setSearch] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItemDto | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const role = user?.role ?? 'CUSTOMER';
   const canRead = can(role, 'inventory:read');
   const canCreate = can(role, 'product:create');
-  const canUpdate = can(role, 'product:update');
-  const canDelete = can(role, 'product:delete') || can(role, 'inventory:delete');
+  const canUpdate = role === 'SUPER_ADMIN';
+  const canDelete = role === 'SUPER_ADMIN';
   const canViewMetrics = can(role, 'system:metrics_view');
 
   const handleDeleteProduct = async (item: InventoryItemDto) => {
     if (!window.confirm(`Are you sure you want to delete "${item.name}" from backend database?`)) return;
 
+    setActionError(null);
     try {
       const targetId = item.id || item.sku;
       if (targetId) {
         await deleteMutation.mutateAsync(targetId);
       }
-      if (item.id) removeProduct(item.id);
-      if (item.sku) removeInventoryItem(item.sku);
-      if (item.id) removeInventoryItem(item.id);
 
       setActionNotice(`Successfully deleted "${item.name}" from database.`);
       setTimeout(() => setActionNotice(null), 4000);
-    } catch (err: any) {
-      console.warn('Backend delete fallback:', err);
-      if (item.id) removeProduct(item.id);
-      if (item.sku) removeInventoryItem(item.sku);
-      if (item.id) removeInventoryItem(item.id);
-
-      setActionNotice(`Deleted "${item.name}" locally.`);
-      setTimeout(() => setActionNotice(null), 4000);
+    } catch (requestError) {
+      setActionError(requestError instanceof Error ? requestError.message : 'Unable to delete the product.');
     }
   };
 
@@ -83,7 +92,7 @@ export function AccessControlMatrix() {
   const inStock = inventory.filter((i) => i.status === 'In stock').length;
 
   return (
-    <div className="mx-auto max-w-[1440px] space-y-6 text-navy">
+    <div className="mx-auto max-w-[1440px] space-y-6 text-neutral-900 font-sans">
       <AddProductModal isOpen={isAddModalOpen} onClose={() => setIsAddModalOpen(false)} />
       {editingItem && (
         <EditProductModal item={editingItem} onClose={() => setEditingItem(null)} />
@@ -91,43 +100,43 @@ export function AccessControlMatrix() {
 
       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.3em] text-taupe">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.3em] text-neutral-400">
             Ajrah Noor Operations Workspace
           </p>
           <div className="flex items-center gap-3">
-            <h2 className="font-serif text-3xl font-extrabold text-navy sm:text-4xl">
+            <h2 className="font-serif text-3xl font-extrabold text-neutral-900 sm:text-4xl">
               Couture Inventory & RBAC Matrix
             </h2>
-            <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-              Database Active
-            </span>
+            <Badge
+              variant={productsQuery.isError ? 'destructive' : 'secondary'}
+              className="font-mono text-[10px] uppercase"
+            >
+              {productsQuery.isError ? 'Database Unavailable' : productsQuery.isPending ? 'Connecting' : 'Database Connected'}
+            </Badge>
           </div>
-          <p className="mt-2 max-w-lg text-sm leading-6 text-slateblue">
+          <p className="mt-2 max-w-lg text-sm leading-6 text-neutral-500">
             Manage stock levels, SKUs, images, and incoming inventory in PostgreSQL database.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {(['CUSTOMER', 'MODERATOR', 'SUPER_ADMIN'] as Role[]).map((r) => (
-            <button
-              key={r}
-              type="button"
-              onClick={() => setRole(r)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                role === r
-                  ? 'bg-navy text-white shadow-sm'
-                  : 'bg-white border border-lightgray text-slateblue hover:text-navy'
-              }`}
-            >
-              {r === 'CUSTOMER' ? 'Customer' : r === 'MODERATOR' ? 'Moderator' : 'Admin'}
-            </button>
-          ))}
-        </div>
+        <Badge variant="outline" className="px-3.5 py-1.5 text-xs font-bold bg-neutral-900 text-white border-neutral-900">
+          Signed in as {roleLabel[role]}
+        </Badge>
       </div>
 
+      {productsQuery.isError && (
+        <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-700">
+          Unable to load products: {productsQuery.error instanceof Error ? productsQuery.error.message : 'Backend request failed.'}
+        </div>
+      )}
       {actionNotice && (
         <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-2xl flex items-center space-x-3 text-emerald-800 text-xs font-semibold shadow-xs animate-in fade-in">
           <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
           <span>{actionNotice}</span>
+        </div>
+      )}
+      {actionError && (
+        <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-700">
+          {actionError}
         </div>
       )}
 
@@ -135,54 +144,62 @@ export function AccessControlMatrix() {
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {canViewMetrics && (
-              <div className="p-4 bg-white border border-lightgray rounded-2xl flex items-center gap-3 shadow-sm">
-                <div className="p-2.5 bg-cream text-navy rounded-xl">
-                  <Box size={17} />
+              <Card className="rounded-2xl border-neutral-200 shadow-xs">
+                <CardContent className="p-4 flex items-center gap-3">
+                  <div className="p-2.5 bg-neutral-100 text-neutral-800 rounded-xl">
+                    <Box size={17} />
+                  </div>
+                  <div>
+                    <p className="text-xs text-neutral-500">Inventory Valuation</p>
+                    <strong className="text-neutral-900 font-bold font-mono">SAR 184,500.00</strong>
+                  </div>
+                  <ArrowUpRight className="ml-auto text-neutral-400" size={16} />
+                </CardContent>
+              </Card>
+            )}
+            <Card className="rounded-2xl border-neutral-200 shadow-xs">
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-50 text-emerald-700 rounded-xl">
+                  <CheckCircle2 size={17} />
                 </div>
                 <div>
-                  <p className="text-xs text-slateblue">Inventory Valuation</p>
-                  <strong className="text-navy font-bold">SAR 184,500.00</strong>
+                  <p className="text-xs text-neutral-500">Tracked Pieces</p>
+                  <strong className="text-neutral-900 font-bold">{inventory.length} Abaya SKUs</strong>
                 </div>
-                <ArrowUpRight className="ml-auto text-slateblue" size={16} />
-              </div>
-            )}
-            <div className="p-4 bg-white border border-lightgray rounded-2xl flex items-center gap-3 shadow-sm">
-              <div className="p-2.5 bg-emerald-50 text-emerald-700 rounded-xl">
-                <CheckCircle2 size={17} />
-              </div>
-              <div>
-                <p className="text-xs text-slateblue">Tracked Pieces</p>
-                <strong className="text-navy font-bold">{inventory.length} Abaya SKUs</strong>
-              </div>
-            </div>
-            <div className="p-4 bg-white border border-lightgray rounded-2xl flex items-center gap-3 shadow-sm">
-              <div className="p-2.5 bg-amber-50 text-amber-700 rounded-xl">
-                <CircleAlert size={17} />
-              </div>
-              <div>
-                <p className="text-xs text-slateblue">Low Stock Warning</p>
-                <strong className="text-navy font-bold">{lowStock} SKUs</strong>
-              </div>
-            </div>
-            <div className="p-4 bg-white border border-lightgray rounded-2xl flex items-center gap-3 shadow-sm">
-              <div className="p-2.5 bg-rose-50 text-rose-700 rounded-xl">
-                <CircleAlert size={17} />
-              </div>
-              <div>
-                <p className="text-xs text-slateblue">Sold Out</p>
-                <strong className="text-navy font-bold">{outOfStock} SKUs</strong>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
+            <Card className="rounded-2xl border-neutral-200 shadow-xs">
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="p-2.5 bg-amber-50 text-amber-700 rounded-xl">
+                  <CircleAlert size={17} />
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-500">Low Stock Warning</p>
+                  <strong className="text-neutral-900 font-bold">{lowStock} SKUs</strong>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="rounded-2xl border-neutral-200 shadow-xs">
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="p-2.5 bg-rose-50 text-rose-700 rounded-xl">
+                  <CircleAlert size={17} />
+                </div>
+                <div>
+                  <p className="text-xs text-neutral-500">Sold Out</p>
+                  <strong className="text-neutral-900 font-bold">{outOfStock} SKUs</strong>
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
-          <div className="overflow-hidden rounded-2xl border border-lightgray bg-white shadow-sm">
-            <div className="flex flex-col gap-3 border-b border-lightgray p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex h-10 max-w-sm items-center gap-2 rounded-xl border border-lightgray bg-white px-3 text-slateblue">
-                <Search size={15} />
-                <input
+          <Card className="overflow-hidden rounded-2xl border-neutral-200 shadow-xs">
+            <div className="flex flex-col gap-3 border-b border-neutral-200 p-4 sm:flex-row sm:items-center sm:justify-between bg-white">
+              <div className="relative flex-1 max-w-sm">
+                <Search size={15} className="text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="w-full bg-transparent text-xs text-navy outline-none placeholder:text-slateblue/60"
+                  className="pl-9 h-9 text-xs bg-neutral-50 border-neutral-200"
                   placeholder="Search Abaya or SKU..."
                 />
               </div>
@@ -191,22 +208,22 @@ export function AccessControlMatrix() {
                   <Button
                     variant="primary"
                     size="sm"
-                    className="rounded-xl"
+                    className="rounded-xl h-9"
                     onClick={() => setIsAddModalOpen(true)}
                   >
-                    <Plus size={13} className="mr-1 inline" />
-                    Add Product to Backend DB
+                    <Plus size={14} className="mr-1.5" />
+                    <span>Add Product to Backend DB</span>
                   </Button>
                 )}
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-4 border-b border-lightgray px-4 py-3 text-[10px] text-slateblue bg-cream/30">
-              <span className="font-semibold text-navy">{totalStock} total units</span>
+            <div className="flex flex-wrap items-center gap-4 border-b border-neutral-200 px-4 py-2.5 text-[10px] text-neutral-500 bg-neutral-50/50">
+              <span className="font-semibold text-neutral-900">{totalStock} total units</span>
               <span>In Stock: {inStock}</span>
               <span>Low Stock: {lowStock}</span>
               <span>Out of Stock: {outOfStock}</span>
-              <span className="ml-auto hidden text-slateblue sm:block">
-                Role: <strong className="text-navy">{roleLabel[role]}</strong>
+              <span className="ml-auto hidden sm:block">
+                Role: <strong className="text-neutral-900">{roleLabel[role]}</strong>
               </span>
             </div>
             <InventoryTable
@@ -216,23 +233,23 @@ export function AccessControlMatrix() {
               onEdit={(item) => setEditingItem(item)}
               onDelete={handleDeleteProduct}
             />
-          </div>
+          </Card>
         </>
       ) : (
-        <div className="flex flex-col items-center justify-center rounded-2xl border border-lightgray bg-white px-6 py-16 text-center shadow-sm">
+        <Card className="flex flex-col items-center justify-center rounded-2xl border-neutral-200 p-16 text-center shadow-xs">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-rose-50 text-rose-600">
             <Lock size={24} />
           </div>
-          <h3 className="text-2xl font-bold text-navy">Access Restricted</h3>
-          <p className="mt-2 max-w-sm text-sm text-slateblue">
-            The <strong className="font-semibold text-navy">CUSTOMER</strong> role does not have administrative access to the Ajrah Noor inventory matrix.
+          <h3 className="text-2xl font-bold text-neutral-900 font-serif">Access Restricted</h3>
+          <p className="mt-2 max-w-sm text-sm text-neutral-500">
+            The <strong className="font-semibold text-neutral-900">CUSTOMER</strong> role does not have administrative access to the Ajrah Noor inventory matrix.
           </p>
-        </div>
+        </Card>
       )}
-      <div className="flex items-center gap-2 text-xs text-slateblue">
-        <ShieldCheck size={14} className="text-navy" />
+      <div className="flex items-center gap-2 text-xs text-neutral-500">
+        <ShieldCheck size={14} className="text-neutral-900" />
         <span>
-          Ajrah Noor Security Context: <strong className="text-navy">{roleLabel[role]}</strong>
+          Ajrah Noor Security Context: <strong className="text-neutral-900">{roleLabel[role]}</strong>
         </span>
       </div>
     </div>
@@ -253,83 +270,89 @@ function InventoryTable({
   onDelete: (item: InventoryItemDto) => void;
 }) {
   if (items.length === 0)
-    return <p className="py-12 text-center text-sm text-slateblue">No inventory matches your search.</p>;
+    return <p className="py-12 text-center text-sm text-neutral-500">No inventory matches your search.</p>;
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px] text-left border-collapse">
-        <thead>
-          <tr className="border-b border-lightgray text-[10px] uppercase tracking-[0.12em] text-slateblue bg-cream/20">
-            <th className="px-4 py-3 font-semibold">Abaya Name</th>
-            <th className="px-4 py-3 font-semibold">Category</th>
-            <th className="px-4 py-3 font-semibold">SKU / ID</th>
-            <th className="px-4 py-3 font-semibold">Incoming</th>
-            <th className="px-4 py-3 font-semibold">Stock</th>
-            <th className="px-4 py-3 font-semibold">Status</th>
-            <th className="px-4 py-3 font-semibold">Price</th>
-            <th className="px-4 py-3 font-semibold">Action</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-lightgray">
-          {items.map((item) => (
-            <tr key={item.sku || item.id} className="text-xs hover:bg-cream/40 transition-colors">
-              <td className="px-4 py-3 font-semibold text-navy flex items-center gap-2">
+    <Table>
+      <TableHeader>
+        <TableRow className="bg-neutral-50/70 border-b border-neutral-200 text-[10px] uppercase font-bold tracking-wider text-neutral-500">
+          <TableHead className="py-3 px-4">Abaya Name</TableHead>
+          <TableHead className="py-3 px-4">Category</TableHead>
+          <TableHead className="py-3 px-4">SKU / ID</TableHead>
+          <TableHead className="py-3 px-4">Incoming</TableHead>
+          <TableHead className="py-3 px-4">Stock</TableHead>
+          <TableHead className="py-3 px-4">Status</TableHead>
+          <TableHead className="py-3 px-4">Price</TableHead>
+          <TableHead className="py-3 px-4 text-right">Action</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody className="text-xs">
+        {items.map((item) => (
+          <TableRow key={item.sku || item.id} className="hover:bg-neutral-50/60 transition-colors">
+            <TableCell className="py-3 px-4 font-semibold text-neutral-900">
+              <div className="flex items-center gap-2.5">
                 {item.image ? (
-                  <img src={item.image} alt={item.name} className="w-8 h-8 rounded-lg object-cover border border-gray-200 shadow-xs shrink-0" />
+                  <img src={item.image} alt={item.name} className="w-8 h-8 rounded-lg object-cover border border-neutral-200 shadow-2xs shrink-0" />
                 ) : (
-                  <div className="w-8 h-8 rounded-lg bg-cream border border-gray-200 flex items-center justify-center text-[10px] text-navy font-bold shrink-0">
+                  <div className="w-8 h-8 rounded-lg bg-neutral-100 border border-neutral-200 flex items-center justify-center text-[10px] text-neutral-800 font-bold shrink-0">
                     AN
                   </div>
                 )}
-                <span className="truncate max-w-[160px]">{item.name}</span>
-              </td>
-              <td className="px-4 py-3 text-slateblue">{item.category}</td>
-              <td className="px-4 py-3 text-slateblue font-mono text-[11px] truncate max-w-[120px]">{item.sku}</td>
-              <td className="px-4 py-3 text-navy font-semibold">{item.incoming}</td>
-              <td className="px-4 py-3 font-bold text-navy">{item.stock}</td>
-              <td className="px-4 py-3">
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    item.status === 'In stock'
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                      : item.status === 'Low stock'
-                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                      : 'bg-rose-50 text-rose-700 border border-rose-200'
-                  }`}
-                >
-                  {item.status}
-                </span>
-              </td>
-              <td className="px-4 py-3 font-semibold text-navy">
-                {item.currency} {item.price.toLocaleString()}
-              </td>
-              <td className="px-4 py-3">
-                <div className="flex items-center gap-2">
-                  {canUpdate && (
-                    <button
-                      onClick={() => onEdit(item)}
-                      title="Edit Product"
-                      className="p-1 text-slateblue hover:text-navy hover:bg-gray-100 rounded-lg transition-colors"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                  )}
-                  {canDelete && (
-                    <button
-                      onClick={() => onDelete(item)}
-                      title="Delete Product"
-                      className="p-1 text-slateblue hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  )}
-                  {!canUpdate && !canDelete && <span className="text-[10px] text-slateblue/60">Read-only</span>}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+                <span className="truncate max-w-[180px]">{item.name}</span>
+              </div>
+            </TableCell>
+            <TableCell className="py-3 px-4 text-neutral-600">{item.category}</TableCell>
+            <TableCell className="py-3 px-4 text-neutral-500 font-mono text-[11px] truncate max-w-[120px]">{item.sku}</TableCell>
+            <TableCell className="py-3 px-4 text-neutral-900 font-semibold">{item.incoming}</TableCell>
+            <TableCell className="py-3 px-4 font-bold text-neutral-900">{item.stock}</TableCell>
+            <TableCell className="py-3 px-4">
+              <Badge
+                variant={
+                  item.status === 'In stock'
+                    ? 'secondary'
+                    : item.status === 'Low stock'
+                    ? 'outline'
+                    : 'destructive'
+                }
+                className="text-[10px] font-semibold"
+              >
+                {item.status}
+              </Badge>
+            </TableCell>
+            <TableCell className="py-3 px-4 font-bold text-neutral-900 font-mono">
+              {item.currency} {item.price.toLocaleString()}
+            </TableCell>
+            <TableCell className="py-3 px-4 text-right">
+              <div className="flex items-center justify-end gap-1.5">
+                {canUpdate && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onEdit(item)}
+                    title="Edit Product"
+                    className="h-8 w-8 text-neutral-500 hover:text-neutral-900"
+                  >
+                    <Pencil size={14} />
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onDelete(item)}
+                    title="Delete Product"
+                    className="h-8 w-8 text-neutral-500 hover:text-rose-600 hover:bg-rose-50"
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                )}
+                {!canUpdate && !canDelete && <span className="text-[10px] text-neutral-400">Read-only</span>}
+              </div>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 
@@ -341,7 +364,6 @@ function EditProductModal({
   onClose: () => void;
 }) {
   const updateMutation = useUpdateProduct();
-  const updateInventoryItem = useRootStore((s) => s.updateInventoryItem);
 
   const [name, setName] = useState(item.name);
   const [price, setPrice] = useState(item.price);
@@ -349,14 +371,14 @@ function EditProductModal({
   const [stock, setStock] = useState(item.stock);
   const [incoming, setIncoming] = useState(item.incoming);
   const [image, setImage] = useState(item.image || '');
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const stockNum = Number(stock);
     const incNum = Number(incoming);
-    const status = stockNum === 0 ? 'Out of stock' : stockNum < 20 ? 'Low stock' : 'In stock';
-    const key = item.sku || item.id;
+    setError(null);
 
     try {
       if (item.id) {
@@ -372,134 +394,125 @@ function EditProductModal({
           },
         });
       }
-      updateInventoryItem(key, {
-        name,
-        price: Number(price),
-        category,
-        stock: stockNum,
-        incoming: incNum,
-        status,
-        image,
-      });
       onClose();
-    } catch (err) {
-      console.warn('Backend update notice:', err);
-      updateInventoryItem(key, {
-        name,
-        price: Number(price),
-        category,
-        stock: stockNum,
-        incoming: incNum,
-        status,
-        image,
-      });
-      onClose();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unable to update the product.');
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-xs" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-gray-100 z-10 animate-in fade-in duration-200">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-          <h2 className="text-base font-bold text-gray-900">Edit Product & Inventory</h2>
-          <button onClick={onClose} className="p-1 rounded-lg text-gray-400 hover:text-gray-600">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Dialog open={true} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-md bg-white border-neutral-200 rounded-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-base font-bold text-neutral-900 font-serif">
+            Edit Product & Inventory
+          </DialogTitle>
+          <DialogDescription className="text-xs text-neutral-500">
+            Update pricing, stock counts, and atelier imagery in PostgreSQL.
+          </DialogDescription>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
-          <div>
-            <label className="block text-gray-700 font-semibold mb-1">Product Name</label>
-            <input
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs pt-2">
+          {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-rose-700">{error}</p>}
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-name" className="text-neutral-700 font-semibold text-xs">Product Name</Label>
+            <Input
+              id="edit-name"
               type="text"
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500/20 text-xs"
+              className="text-xs h-9 bg-neutral-50"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-gray-700 font-semibold mb-1">Category</label>
-              <input
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-cat" className="text-neutral-700 font-semibold text-xs">Category</Label>
+              <Input
+                id="edit-cat"
                 type="text"
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs"
+                className="text-xs h-9 bg-neutral-50"
               />
             </div>
 
-            <div>
-              <label className="block text-gray-700 font-semibold mb-1">Price ($)</label>
-              <input
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-price" className="text-neutral-700 font-semibold text-xs">Price ($)</Label>
+              <Input
+                id="edit-price"
                 type="number"
                 min="0"
                 value={price}
                 onChange={(e) => setPrice(Number(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs"
+                className="text-xs h-9 bg-neutral-50 font-mono"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-gray-700 font-semibold mb-1">Stock Quantity</label>
-              <input
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-stock" className="text-neutral-700 font-semibold text-xs">Stock Quantity</Label>
+              <Input
+                id="edit-stock"
                 type="number"
                 min="0"
                 value={stock}
                 onChange={(e) => setStock(Number(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold text-navy"
+                className="text-xs h-9 bg-neutral-50 font-mono font-bold"
               />
             </div>
 
-            <div>
-              <label className="block text-gray-700 font-semibold mb-1">Incoming Stock</label>
-              <input
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-inc" className="text-neutral-700 font-semibold text-xs">Incoming Stock</Label>
+              <Input
+                id="edit-inc"
                 type="number"
                 min="0"
                 value={incoming}
                 onChange={(e) => setIncoming(Number(e.target.value))}
-                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs font-bold text-navy"
+                className="text-xs h-9 bg-neutral-50 font-mono font-bold"
               />
             </div>
           </div>
 
-          <div>
-            <label className="block text-gray-700 font-semibold mb-1">Product Image (URL / Data URI)</label>
-            <input
+          <div className="space-y-1.5">
+            <Label htmlFor="edit-img" className="text-neutral-700 font-semibold text-xs">Product Image (URL / Data URI)</Label>
+            <Input
+              id="edit-img"
               type="text"
               value={image}
               onChange={(e) => setImage(e.target.value)}
               placeholder="https://images.unsplash.com/..."
-              className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs"
+              className="text-xs h-9 bg-neutral-50"
             />
             {image && (
               <div className="mt-2 flex items-center gap-2">
-                <img src={image} alt="Preview" className="w-10 h-10 rounded-lg object-cover border border-gray-200" />
-                <span className="text-[10px] text-gray-500">Image Preview</span>
+                <img src={image} alt="Preview" className="w-10 h-10 rounded-lg object-cover border border-neutral-200" />
+                <span className="text-[10px] text-neutral-500">Image Preview</span>
               </div>
             )}
           </div>
 
-          <div className="pt-4 flex items-center justify-end space-x-3 border-t border-gray-100">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-xl">
+          <DialogFooter className="pt-3 border-t border-neutral-100 flex items-center justify-end space-x-2">
+            <Button type="button" variant="outline" size="sm" onClick={onClose} className="rounded-xl h-9">
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
+              variant="primary"
+              size="sm"
               disabled={updateMutation.isPending}
-              className="px-4 py-2 bg-navy text-white rounded-xl font-semibold shadow-xs flex items-center space-x-1.5"
+              className="rounded-xl h-9"
             >
-              {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+              {updateMutation.isPending && <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />}
               <span>Save Changes</span>
-            </button>
-          </div>
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

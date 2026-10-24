@@ -26,20 +26,20 @@ export function useProducts() {
     if (query.data) {
       setProducts(query.data);
 
-      const mappedInventory: InventoryItemDto[] = query.data.map((p: any, idx: number) => {
-        const stockVal = typeof p.stock === 'number' ? p.stock : 120;
-        const incomingVal = typeof p.incoming === 'number' ? p.incoming : 50;
+      const mappedInventory: InventoryItemDto[] = query.data.map((p, idx) => {
+        const stockVal = p.stock ?? 0;
+        const incomingVal = p.incoming ?? 0;
         const status = stockVal === 0 ? 'Out of stock' : stockVal < 20 ? 'Low stock' : 'In stock';
 
         return {
           id: p.id,
           name: p.name,
-          category: p.category || 'Apparel',
+          category: p.category,
           sku: p.id || `SKU-${100 + idx}`,
           incoming: incomingVal,
           stock: stockVal,
           price: p.price,
-          currency: p.currency || '$',
+          currency: p.currency,
           status,
           image: p.image,
         };

@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import { Heart, Minus, Plus, ShoppingBag } from 'lucide-react';
-import { Button } from '@/shared/ui/Button';
+import { Button } from '@/shared/ui/button';
 import type { ProductDto } from '@/shared/types/contracts';
 import { useStore } from '@/shared/store/store';
 import { renderStars, filters } from './Stars';

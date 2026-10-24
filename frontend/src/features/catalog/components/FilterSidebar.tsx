@@ -1,5 +1,11 @@
 import React from 'react';
 import { useRootStore } from '@/slicers/root_store';
+import { Card, CardHeader, CardTitle, CardContent } from '@/shared/ui/card';
+import { Input } from '@/shared/ui/input';
+import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
+import { Separator } from '@/shared/ui/separator';
+import { Search, Sparkles, Filter, X } from 'lucide-react';
 
 const categories = [
   'All Abayas',
@@ -14,51 +20,109 @@ export const FilterSidebar: React.FC = () => {
   const setActiveFilter = useRootStore((s) => s.setActiveFilter);
   const searchQuery = useRootStore((s) => s.searchQuery);
   const setSearchQuery = useRootStore((s) => s.setSearchQuery);
+  const products = useRootStore((s) => s.products);
+
+  const getCategoryCount = (cat: string) => {
+    if (cat === 'All Abayas' || cat === 'All pieces') return products.length;
+    return products.filter((p) => p.category === cat).length;
+  };
 
   return (
-    <aside className="w-full md:w-64 space-y-6 bg-white border border-lightgray p-6 rounded-2xl h-fit shadow-sm">
-      <div>
-        <h3 className="text-xs font-bold uppercase tracking-widest text-slateblue mb-3">
-          Search Collections
-        </h3>
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search Ajrah Noor..."
-          className="w-full px-3.5 py-2.5 bg-white border border-lightgray rounded-xl text-navy placeholder-slateblue/50 focus:outline-none focus:border-navy text-xs font-medium"
-        />
-      </div>
+    <aside className="w-full md:w-64 space-y-4">
+      <Card className="border-neutral-200 shadow-2xs bg-white">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="font-serif text-sm font-bold text-neutral-900 flex items-center space-x-1.5">
+              <Filter size={14} className="text-amber-800" />
+              <span>Catalog Filters</span>
+            </CardTitle>
+            {(activeFilter !== 'All Abayas' || searchQuery) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveFilter('All Abayas');
+                  setSearchQuery('');
+                }}
+                className="text-[10px] text-amber-800 hover:text-neutral-900 font-mono flex items-center space-x-0.5"
+                title="Reset filters"
+              >
+                <X size={12} />
+                <span>Reset</span>
+              </button>
+            )}
+          </div>
+        </CardHeader>
 
-      <div>
-        <h3 className="text-xs font-bold uppercase tracking-widest text-slateblue mb-3">
-          Abaya Categories
-        </h3>
-        <div className="space-y-1">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setActiveFilter(cat)}
-              className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs transition-all ${
-                activeFilter === cat
-                  ? 'bg-navy text-white font-bold shadow-sm'
-                  : 'text-slateblue hover:text-navy hover:bg-cream/60 font-medium'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-      </div>
+        <CardContent className="space-y-5">
+          {/* Search Box */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 block">
+              Search by Keyword
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-neutral-400" />
+              <Input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Silk, velvet, gold..."
+                className="pl-8 text-xs h-9 bg-neutral-50/70 border-neutral-200"
+              />
+            </div>
+          </div>
 
-      <div className="pt-4 border-t border-lightgray">
-        <div className="p-3.5 bg-cream/40 rounded-xl border border-lightgray/60 space-y-1 text-[11px]">
-          <p className="font-bold text-navy">Ajrah Noor Bespoke Atelier</p>
-          <p className="text-slateblue leading-relaxed">
-            Custom sizing & haute couture tailors available for every order.
-          </p>
-        </div>
-      </div>
+          <Separator />
+
+          {/* Categories */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 block">
+              Collections & Fabrics
+            </label>
+            <div className="space-y-1">
+              {categories.map((cat) => {
+                const count = getCategoryCount(cat);
+                const isSelected = activeFilter === cat || (cat === 'All Abayas' && activeFilter === 'All pieces');
+
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setActiveFilter(cat)}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-neutral-900 text-white font-semibold shadow-xs'
+                        : 'text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100/70 font-medium'
+                    }`}
+                  >
+                    <span>{cat}</span>
+                    <Badge
+                      variant={isSelected ? 'outline' : 'secondary'}
+                      className={`text-[9px] px-1.5 py-0 font-mono ${
+                        isSelected ? 'border-neutral-600 text-neutral-200' : 'text-neutral-500'
+                      }`}
+                    >
+                      {count}
+                    </Badge>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <Separator />
+
+          {/* Atelier Brand Callout */}
+          <div className="p-3 bg-neutral-50 border border-neutral-200/80 rounded-xl space-y-1 text-[11px]">
+            <div className="flex items-center space-x-1.5 text-amber-800 font-bold">
+              <Sparkles size={12} />
+              <span>Ajrah Noor Atelier</span>
+            </div>
+            <p className="text-neutral-500 text-[10px] leading-relaxed">
+              Every garment is custom-tailored with complimentary GCC express delivery.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
     </aside>
   );
 };

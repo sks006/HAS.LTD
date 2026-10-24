@@ -2,6 +2,7 @@
 
 use axum::{
     routing::{delete, get, post, put},
+    http::HeaderValue,
     Json, Router,
 };
 use tower_http::cors::{Any, CorsLayer};
@@ -38,10 +39,22 @@ async fn metrics_endpoint() -> impl axum::response::IntoResponse {
 }
 
 pub fn build_router(state: AppState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = match std::env::var("FRONTEND_ORIGIN") {
+        Ok(origin) => {
+            let origin = HeaderValue::from_str(&origin)
+                .expect("FRONTEND_ORIGIN must be a valid HTTP origin");
+            CorsLayer::new()
+                .allow_origin(origin)
+                .allow_methods(Any)
+                .allow_headers(Any)
+                .allow_credentials(true)
+        }
+        Err(std::env::VarError::NotPresent) => CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any),
+        Err(error) => panic!("Unable to read FRONTEND_ORIGIN: {error}"),
+    };
 
     Router::new()
         // Public observability

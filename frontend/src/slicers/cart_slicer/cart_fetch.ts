@@ -1,20 +1,41 @@
 import { apiFetch } from '@/shared/api/client';
 import { ENDPOINTS } from '@/shared/api/endpoints';
-import type { OrderDto } from '@/shared/types/contracts';
+import type { AddressDto } from '@/shared/types/contracts';
 
-export async function syncCartFetch(items: { productId: string; quantity: number }[]): Promise<void> {
+export interface CheckoutPayload {
+  currency: string;
+  shipping_address: AddressDto;
+  billing_address?: AddressDto;
+  items: {
+    variant_id?: string;
+    product_id?: string;
+    price_minor_units?: number;
+    product_name?: string;
+    sku?: string;
+    quantity: number;
+  }[];
+}
+
+export interface CheckoutResponse {
+  ok: boolean;
+  order_id: string;
+  message: string;
+}
+
+export async function syncCartFetch(items: { variant_id: string; quantity_change: number }[]) {
   return apiFetch<void>(ENDPOINTS.CART_SYNC, {
     method: 'POST',
-    body: { items },
+    body: items,
   });
 }
 
 export async function submitOrderFetch(
-  items: { productId: string; quantity: number }[],
+  payload: CheckoutPayload,
   idempotencyKey: string
-): Promise<OrderDto> {
-  return apiFetch<OrderDto>(ENDPOINTS.ORDERS, {
+): Promise<CheckoutResponse> {
+  return apiFetch<CheckoutResponse>(ENDPOINTS.CHECKOUT, {
     method: 'POST',
-    body: { items, idempotency_key: idempotencyKey },
+    headers: { 'x-idempotency-key': idempotencyKey },
+    body: payload,
   });
 }

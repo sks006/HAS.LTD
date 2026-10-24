@@ -3,8 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { useRootStore } from '@/slicers/root_store';
 import { useProducts } from '@/features/catalog/hooks/useProducts';
 import { ProductDto } from '@/shared/types/contracts';
-import Button from '@/shared/ui/Button';
-import Modal from '@/shared/ui/Modal';
+import { Button } from '@/shared/ui/button';
+import { Badge } from '@/shared/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/shared/ui/dialog';
 import {
   MessageSquare,
   Send,
@@ -12,9 +20,7 @@ import {
   Loader2,
   PackageX,
   Heart,
-  Plus,
   ArrowRight,
-  ShoppingBag,
 } from 'lucide-react';
 
 export const ProductGrid: React.FC = () => {
@@ -60,19 +66,19 @@ export const ProductGrid: React.FC = () => {
 
   if (isLoading && products.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 bg-white border border-lightgray rounded-2xl p-8 space-y-3 font-sans">
-        <Loader2 className="w-8 h-8 text-[#7c3aed] animate-spin" />
-        <p className="font-semibold text-navy text-sm">Fetching atelier collection...</p>
+      <div className="flex flex-col items-center justify-center py-20 bg-white border border-neutral-200 rounded-2xl p-8 space-y-3 font-sans">
+        <Loader2 className="w-8 h-8 text-neutral-800 animate-spin" />
+        <p className="font-semibold text-neutral-800 text-sm">Fetching atelier collection...</p>
       </div>
     );
   }
 
   if (filteredProducts.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-slateblue bg-white border border-lightgray rounded-2xl p-8 space-y-2 font-sans">
-        <PackageX className="w-10 h-10 text-slateblue/40" />
-        <p className="font-semibold text-navy text-sm">No products found in backend catalog.</p>
-        <p className="text-xs text-slateblue">
+      <div className="flex flex-col items-center justify-center py-16 text-neutral-500 bg-white border border-neutral-200 rounded-2xl p-8 space-y-2 font-sans">
+        <PackageX className="w-10 h-10 text-neutral-300" />
+        <p className="font-semibold text-neutral-800 text-sm">No products found in backend catalog.</p>
+        <p className="text-xs text-neutral-400">
           Use the Admin Dashboard to populate items.
         </p>
       </div>
@@ -82,7 +88,7 @@ export const ProductGrid: React.FC = () => {
   return (
     <>
       {sentSuccess && (
-        <div className="mb-6 p-4 bg-emerald-50 border border-emerald-300 rounded-2xl flex items-center space-x-3 text-emerald-800 text-xs font-semibold shadow-sm animate-in fade-in font-sans">
+        <div className="mb-6 p-4 bg-emerald-50 border border-emerald-300 rounded-2xl flex items-center space-x-3 text-emerald-800 text-xs font-semibold shadow-xs animate-in fade-in font-sans">
           <CheckCircle2 size={18} className="text-emerald-600 shrink-0" />
           <span>{sentSuccess}</span>
         </div>
@@ -114,68 +120,76 @@ export const ProductGrid: React.FC = () => {
               });
               navigate('/checkout');
             }}
+            onOpenDetail={() => navigate(`/product/${product.id}`)}
             onOpenMessage={() => setMessageProduct(product)}
           />
         ))}
       </div>
 
-      {/* Message Atelier Modal */}
-      <Modal
-        isOpen={Boolean(messageProduct)}
-        onClose={() => setMessageProduct(null)}
-        title={`Message Atelier - ${messageProduct?.name || ''}`}
-      >
-        <form onSubmit={handleSendMessage} className="space-y-4 pt-2 font-sans">
-          <div className="p-3 bg-cream/50 border border-lightgray rounded-xl flex items-center space-x-3">
-            <img
-              src={messageProduct?.image}
-              alt={messageProduct?.alt}
-              className="w-12 h-14 object-cover rounded-lg shrink-0"
-            />
-            <div className="text-xs">
-              <p className="font-bold text-navy">{messageProduct?.name}</p>
-              <p className="text-slateblue">
-                {messageProduct?.category} • SAR {messageProduct?.price.toLocaleString()}
-              </p>
+      {/* Message Atelier Dialog (Shadcn) */}
+      <Dialog open={Boolean(messageProduct)} onOpenChange={(open) => !open && setMessageProduct(null)}>
+        <DialogContent className="sm:max-w-md bg-white border border-neutral-200">
+          <DialogHeader>
+            <DialogTitle className="font-serif text-lg font-bold text-neutral-900">
+              Message Atelier — {messageProduct?.name}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-neutral-500">
+              Inquire about custom sizing, bespoke modifications, or delivery dates.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSendMessage} className="space-y-4 pt-2 font-sans">
+            <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl flex items-center space-x-3">
+              <img
+                src={messageProduct?.image}
+                alt={messageProduct?.alt}
+                className="w-12 h-14 object-cover rounded-lg shrink-0 border border-neutral-200"
+              />
+              <div className="text-xs">
+                <p className="font-bold text-neutral-900">{messageProduct?.name}</p>
+                <p className="text-neutral-500 font-mono">
+                  {messageProduct?.category} • SAR {messageProduct?.price.toLocaleString()}
+                </p>
+              </div>
             </div>
-          </div>
 
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slateblue mb-1">
-              Your Inquiry or Custom Sizing Request
-            </label>
-            <textarea
-              rows={4}
-              value={userMessage}
-              onChange={(e) => setUserMessage(e.target.value)}
-              required
-              placeholder="Inquire about custom tailoring, silk color options, or delivery schedule..."
-              className="w-full p-3 bg-white border border-lightgray rounded-xl text-navy text-xs placeholder-slateblue/40 focus:outline-none focus:border-navy"
-            />
-          </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-neutral-600 mb-1">
+                Your Inquiry or Custom Sizing Request
+              </label>
+              <textarea
+                rows={4}
+                value={userMessage}
+                onChange={(e) => setUserMessage(e.target.value)}
+                required
+                placeholder="Inquire about custom tailoring, silk color options, or delivery schedule..."
+                className="w-full p-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 text-xs placeholder-neutral-400 focus:outline-none focus:border-neutral-900"
+              />
+            </div>
 
-          <div className="flex space-x-3 justify-end pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setMessageProduct(null)}
-              className="rounded-xl"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              className="rounded-xl flex items-center space-x-1.5"
-            >
-              <Send size={13} />
-              <span>Send Inquiry</span>
-            </Button>
-          </div>
-        </form>
-      </Modal>
+            <DialogFooter className="flex space-x-3 justify-end pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setMessageProduct(null)}
+                className="rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="luxury"
+                size="sm"
+                className="rounded-xl flex items-center space-x-1.5"
+              >
+                <Send size={13} />
+                <span>Send Inquiry</span>
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };
@@ -186,8 +200,9 @@ const ProductCardItem: React.FC<{
   onWishlist: () => void;
   onAddToCart: () => void;
   onBuyNow: () => void;
+  onOpenDetail: () => void;
   onOpenMessage: () => void;
-}> = ({ product, isWishlisted, onWishlist, onAddToCart, onBuyNow, onOpenMessage }) => {
+}> = ({ product, isWishlisted, onWishlist, onAddToCart, onBuyNow, onOpenDetail, onOpenMessage }) => {
   return (
     <article className="group flex flex-col justify-between select-none">
       {/* Product Image Container */}
@@ -195,10 +210,11 @@ const ProductCardItem: React.FC<{
         <img
           src={product.image}
           alt={product.alt}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+          onClick={onOpenDetail}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out cursor-pointer"
         />
 
-        {/* Wishlist Button top-left matching design screenshot */}
+        {/* Wishlist Button top-left */}
         <button
           type="button"
           onClick={onWishlist}
@@ -212,18 +228,23 @@ const ProductCardItem: React.FC<{
           />
         </button>
 
-        {/* Couture Sale Badge if applicable */}
-        {product.sale && (
-          <span className="absolute top-3.5 right-3.5 bg-neutral-900/80 text-white text-[9px] uppercase font-bold px-2.5 py-1 rounded-full tracking-wider backdrop-blur-xs">
+        {/* Couture Sale / New Badge */}
+        {product.sale ? (
+          <Badge className="absolute top-3.5 right-3.5 bg-neutral-900/90 text-white text-[9px] uppercase font-bold tracking-wider backdrop-blur-xs">
             Sale
-          </span>
+          </Badge>
+        ) : (
+          <Badge variant="secondary" className="absolute top-3.5 right-3.5 bg-white/90 text-neutral-800 text-[9px] uppercase font-bold tracking-wider backdrop-blur-xs">
+            Atelier
+          </Badge>
         )}
 
-        {/* Hover Action Bar matching exact user screenshot */}
+        {/* Hover Action Bar */}
         <div className="absolute inset-x-0 bottom-0 flex items-stretch translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-in-out z-20 shadow-lg">
           {/* Left Dark Action Bar: ADD TO BAG + BUY NOW */}
           <div className="flex-1 bg-[#1c1917] text-white flex items-center justify-evenly px-3 py-3 font-mono text-[10px] uppercase font-bold tracking-wider">
             <button
+              type="button"
               onClick={onAddToCart}
               className="hover:text-amber-300 transition-colors flex items-center space-x-1 cursor-pointer"
             >
@@ -233,6 +254,7 @@ const ProductCardItem: React.FC<{
             <span className="text-neutral-600 font-light">+</span>
 
             <button
+              type="button"
               onClick={onBuyNow}
               className="hover:text-amber-300 transition-colors flex items-center space-x-1 cursor-pointer"
             >
@@ -243,6 +265,7 @@ const ProductCardItem: React.FC<{
 
           {/* Right Light Action Bar: MESSAGE */}
           <button
+            type="button"
             onClick={onOpenMessage}
             className="bg-[#f5f5f4] hover:bg-white text-neutral-800 px-3.5 py-3 font-mono text-[10px] uppercase font-bold tracking-wider flex items-center space-x-1.5 transition-colors cursor-pointer border-l border-neutral-200"
           >
@@ -256,12 +279,15 @@ const ProductCardItem: React.FC<{
       <div className="pt-3 px-1 space-y-1">
         <div className="flex items-center justify-between text-[10px] uppercase font-bold tracking-[0.2em] text-neutral-400">
           <span>{product.category || 'THE OCCASION EDIT'}</span>
-          <span className="font-semibold text-neutral-800 text-xs">
+          <span className="font-semibold text-neutral-800 text-xs font-mono">
             {product.currency} {product.price.toLocaleString()}
           </span>
         </div>
 
-        <h3 className="font-serif text-base font-medium text-neutral-900 group-hover:text-amber-700 transition-colors tracking-tight">
+        <h3
+          onClick={onOpenDetail}
+          className="font-serif text-base font-medium text-neutral-900 group-hover:text-amber-700 transition-colors tracking-tight cursor-pointer"
+        >
           {product.name}
         </h3>
       </div>

@@ -11,8 +11,14 @@ run_backend() {
     echo "=================================================="
     # Watch specific folders to prevent unnecessary rebuilds
     cargo watch \
+        -w Cargo.toml \
+        -w backend/api/Cargo.toml \
         -w backend/api/src \
+        -w backend/domain/Cargo.toml \
         -w backend/domain/src \
+        -w backend/crypto/Cargo.toml \
+        -w backend/crypto/src \
+        -w backend/infrastructure/Cargo.toml \
         -w backend/infrastructure/src \
         -x "run -p api --bin api"
 }

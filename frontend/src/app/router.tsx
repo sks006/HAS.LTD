@@ -4,10 +4,12 @@ import Home from '@/pages/storefront/Home';
 import ProductDetail from '@/pages/storefront/ProductDetail';
 import Checkout from '@/pages/storefront/Checkout';
 import Login from '@/pages/auth/Login';
+import Register from '@/pages/auth/Register';
 import InventoryDashboard from '@/pages/dashboard/InventoryDashboard';
 import ModeratorPanel from '@/pages/dashboard/ModeratorPanel';
 import OrdersPage from '@/pages/dashboard/OrdersPage';
 import CustomerOrderPage from '@/pages/storefront/CustomerOrderPage';
+import { RequireStaff } from '@/features/auth/guards/RequireStaff';
 
 export const AppRouter: React.FC = () => {
   return (
@@ -23,15 +25,65 @@ export const AppRouter: React.FC = () => {
 
         {/* Auth Routes */}
         <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
 
-        {/* Unified Admin & Moderator Dashboard Routes */}
-        <Route path="/orders" element={<OrdersPage />} />
-        <Route path="/dashboard/orders" element={<OrdersPage />} />
-        <Route path="/admin" element={<InventoryDashboard />} />
-        <Route path="/moderator" element={<ModeratorPanel />} />
-        <Route path="/dashboard/moderator" element={<ModeratorPanel />} />
-        <Route path="/dashboard" element={<InventoryDashboard />} />
-        <Route path="/dashboard/*" element={<InventoryDashboard />} />
+        {/* Protected Staff Portal Dashboard Routes (SUPER_ADMIN and MODERATOR) */}
+        <Route
+          path="/orders"
+          element={
+            <RequireStaff>
+              <OrdersPage />
+            </RequireStaff>
+          }
+        />
+        <Route
+          path="/dashboard/orders"
+          element={
+            <RequireStaff>
+              <OrdersPage />
+            </RequireStaff>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <RequireStaff>
+              <InventoryDashboard />
+            </RequireStaff>
+          }
+        />
+        <Route
+          path="/moderator"
+          element={
+            <RequireStaff>
+              <ModeratorPanel />
+            </RequireStaff>
+          }
+        />
+        <Route
+          path="/dashboard/moderator"
+          element={
+            <RequireStaff>
+              <ModeratorPanel />
+            </RequireStaff>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <RequireStaff>
+              <InventoryDashboard />
+            </RequireStaff>
+          }
+        />
+        <Route
+          path="/dashboard/*"
+          element={
+            <RequireStaff>
+              <InventoryDashboard />
+            </RequireStaff>
+          }
+        />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />

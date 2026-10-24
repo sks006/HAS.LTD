@@ -1,6 +1,6 @@
 import { configureStore } from '@reduxjs/toolkit';
 import { create } from 'zustand';
-import authReducer, { setAuth, setRole, logout, AuthState } from './auth_slicer/auth_slice';
+import authReducer, { setAuth, logout, AuthState } from './auth_slicer/auth_slice';
 import productsReducer, {
   setProducts,
   removeProduct,
@@ -27,7 +27,6 @@ import inventoryReducer, {
 import ordersReducer, { OrdersState } from './order_slicer/order_slice';
 
 import type { AuthUser, ProductDto, InventoryItemDto } from '@/shared/types/contracts';
-import type { Role } from '@/shared/types/roles';
 
 // 1. Redux Toolkit Store Configuration
 export const store = configureStore({
@@ -48,7 +47,6 @@ export interface LegacyAuthSlice {
   user: AuthUser | null;
   token: string | null;
   setAuth: (user: AuthUser | null, token: string | null) => void;
-  setRole: (role: Role) => void;
   logout: () => void;
 }
 
@@ -85,15 +83,9 @@ export type RootStore = LegacyAuthSlice & LegacyCatalogSlice & LegacyCartSlice &
 
 export const useRootStore = create<RootStore>()((set) => ({
   // Auth
-  user: { id: 'demo-admin', email: 'admin@lamina.sa', role: 'SUPER_ADMIN' },
+  user: null,
   token: null,
   setAuth: (user, token) => set({ user, token }),
-  setRole: (role) =>
-    set((state) => ({
-      user: state.user
-        ? { ...state.user, role }
-        : { id: 'demo-user', email: 'user@lamina.sa', role },
-    })),
   logout: () => set({ user: null, token: null }),
 
   // Catalog

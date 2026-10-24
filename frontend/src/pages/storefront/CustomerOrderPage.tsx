@@ -1,21 +1,46 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { apiFetch } from '@/shared/api/client';
+import { ApiError, apiFetch } from '@/shared/api/client';
+import { ENDPOINTS } from '@/shared/api/endpoints';
+import { useAuth } from '@/app/providers/AuthProvider';
 import type { RootState } from '@/slicers/root_store';
 import type { OrderRecord, OrderState } from '@/shared/types/contracts';
-import Button from '@/shared/ui/Button';
-import Modal from '@/shared/ui/Modal';
 import {
-  MessageSquare,
-  Send,
-  CheckCircle2,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from '@/shared/ui/card';
+import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
+import { Separator } from '@/shared/ui/separator';
+import { Progress } from '@/shared/ui/progress';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/shared/ui/dialog';
+import {
+  ArrowLeft,
   Clock,
   PackageCheck,
+  CheckCircle2,
   AlertCircle,
-  ArrowLeft,
-  LayoutDashboard,
+  MessageSquare,
+  Send,
   Loader2,
+  RefreshCw,
+  Truck,
+  ShieldCheck,
+  MapPin,
+  Calendar,
+  CreditCard,
 } from 'lucide-react';
 
 interface BackendOrderResponse {
@@ -25,178 +50,179 @@ interface BackendOrderResponse {
     currency: string;
     total_minor_units: number;
     created_at: string;
+    updated_at?: string;
+    version?: number;
   };
   items: Array<{
     product_name: string;
     quantity: number;
     price_minor_units: number;
+    sku?: string;
   }>;
 }
 
 export const CustomerOrderPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-
+  const { isLoading: authLoading, token } = useAuth();
   const reduxOrders = useSelector((state: RootState) => state.orders.orders);
 
   const [orderRecord, setOrderRecord] = useState<OrderRecord | null>(null);
+  const [itemsList, setItemsList] = useState<Array<{ name: string; quantity: number; price: number }>>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [requiresAuth, setRequiresAuth] = useState(false);
 
-  // Message Modal State
+  // Message Atelier Inquiry Modal
   const [messageOpen, setMessageOpen] = useState(false);
   const [userMessage, setUserMessage] = useState('');
   const [messageSentSuccess, setMessageSentSuccess] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function fetchOrderDetails() {
-      if (!id) return;
-      setLoading(true);
-      setError(null);
-
-      // First check Redux store (for immediately created orders)
-      const foundInStore = reduxOrders.find(
-        (o: OrderRecord) => o.id === id || o.order_number === id || o.idempotency_key === id
-      );
-
-      if (foundInStore) {
-        setOrderRecord(foundInStore);
-        setLoading(false);
-        return;
-      }
-
-      // Otherwise fetch live from backend API /orders/{id}
-      try {
-        const data = await apiFetch<BackendOrderResponse>(`/orders/${id}`);
-        if (data && data.order) {
-          const mainItemName = data.items?.[0]?.product_name || 'Ajrah Noor Piece';
-          const mappedRecord: OrderRecord = {
-            id: data.order.id,
-            order_number: `ID: ${data.order.id.slice(0, 8)}`,
-            customer_name: 'Customer',
-            product_name: mainItemName,
-            sku: 'SK-45',
-            payment_method: 'Cash on Delivery',
-            amount: data.order.total_minor_units / 100 || 110.21,
-            currency: data.order.currency === 'SAR' ? 'SAR' : '$',
-            status: (data.order.state as OrderState) || 'Pending',
-            created_at: data.order.created_at || new Date().toISOString(),
-          };
-          setOrderRecord(mappedRecord);
-        }
-      } catch (err: any) {
-        // Fallback record if API fails
-        setOrderRecord({
-          id: id || 'ord-latest',
-          order_number: `ID: ${id?.slice(0, 8) || '70668'}`,
-          customer_name: 'Customer',
-          product_name: 'Haute Couture Abaya',
-          sku: 'SK-45',
-          payment_method: 'Cash on Delivery',
-          amount: 110.21,
-          currency: 'SAR',
-          status: 'Pending',
-          created_at: new Date().toISOString(),
-        });
-      } finally {
-        setLoading(false);
-      }
+  const fetchOrderDetails = async (isManualRefresh = false) => {
+    if (!id) {
+      setError('No order identifier specified.');
+      setLoading(false);
+      return;
     }
 
+    if (isManualRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
+    setRequiresAuth(false);
+
+    // First check Redux store for optimistic client-side order caching
+    const foundInStore = reduxOrders.find(
+      (o: OrderRecord) => o.id === id || o.order_number === id || o.idempotency_key === id
+    );
+
+    if (foundInStore && !isManualRefresh) {
+      setOrderRecord(foundInStore);
+      setItemsList([
+        {
+          name: foundInStore.product_name,
+          quantity: 1,
+          price: foundInStore.amount,
+        },
+      ]);
+      setLoading(false);
+    }
+
+    // Always attempt live query against Axum endpoint GET /orders/{id}
+    try {
+      const data = await apiFetch<BackendOrderResponse>(ENDPOINTS.ORDER_BY_ID(id), { token });
+      if (data && data.order) {
+        const mainItemName = data.items?.[0]?.product_name || 'Haute Couture Abaya Piece';
+        const mappedRecord: OrderRecord = {
+          id: data.order.id,
+          order_number: `ID: ${data.order.id.slice(0, 8)}`,
+          customer_name: foundInStore?.customer_name || 'VIP Client',
+          product_name: mainItemName,
+          sku: data.items?.[0]?.sku || 'SKU-AN-2026',
+          payment_method: foundInStore?.payment_method || 'Cash on Delivery',
+          amount: data.order.total_minor_units / 100,
+          currency: data.order.currency || 'SAR',
+          status: (data.order.state as OrderState) || 'Pending',
+          created_at: data.order.created_at,
+          shipping_address: foundInStore?.shipping_address,
+        };
+
+        setOrderRecord(mappedRecord);
+        if (data.items && data.items.length > 0) {
+          setItemsList(
+            data.items.map((i) => ({
+              name: i.product_name,
+              quantity: i.quantity,
+              price: i.price_minor_units / 100,
+            }))
+          );
+        }
+      }
+    } catch (requestError) {
+      if (requestError instanceof ApiError && requestError.status === 401) {
+        setRequiresAuth(true);
+        if (!foundInStore) {
+          setError('Authentication required: Sign in to view protected order tracking details.');
+        }
+      } else if (!foundInStore) {
+        setError(requestError instanceof Error ? requestError.message : 'Unable to query order status.');
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
     fetchOrderDetails();
-  }, [id, reduxOrders]);
+  }, [id, authLoading]);
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     setMessageOpen(false);
     setUserMessage('');
-    setMessageSentSuccess('Your message regarding this order has been sent to Ajrah Noor Atelier.');
+    setMessageSentSuccess('Your inquiry has been relayed to the Ajrah Noor Atelier team.');
     setTimeout(() => setMessageSentSuccess(null), 5000);
   };
 
-  const getStatusBadge = (status?: string | OrderState) => {
-    const s = String(status || 'Pending');
-    switch (s) {
-      case 'Pending':
-        return (
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-300">
-            <Clock size={13} className="mr-1" />
-            Pending Confirmation
-          </span>
-        );
-      case 'Processing':
-      case 'Paid':
-      case 'Reserved':
-        return (
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
-            <PackageCheck size={13} className="mr-1" />
-            {s === 'Paid' ? 'Paid' : s === 'Reserved' ? 'Reserved' : 'Processing'}
-          </span>
-        );
-      case 'Delivered':
-      case 'Shipped':
-        return (
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-            <CheckCircle2 size={13} className="mr-1" />
-            {s === 'Shipped' ? 'Shipped' : 'Delivered'}
-          </span>
-        );
-      case 'Cancelled':
-      case 'Returned':
-        return (
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300">
-            <AlertCircle size={13} className="mr-1" />
-            {s}
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-gray-100 text-gray-800">
-            {s}
-          </span>
-        );
-    }
+  const getStatusProgress = (status?: string | OrderState) => {
+    const s = String(status || 'Pending').toLowerCase();
+    if (s === 'pending') return { pct: 25, label: 'Pending Atelier Review', badge: 'secondary' };
+    if (s === 'reserved') return { pct: 50, label: 'Silk Reserved & Cut', badge: 'secondary' };
+    if (s === 'paid' || s === 'processing') return { pct: 75, label: 'Tailored & Packaged', badge: 'default' };
+    if (s === 'shipped' || s === 'delivered') return { pct: 100, label: 'Dispatched with Courier', badge: 'default' };
+    if (s === 'cancelled') return { pct: 0, label: 'Cancelled', badge: 'destructive' };
+    return { pct: 30, label: status, badge: 'outline' };
   };
 
+  const progressInfo = getStatusProgress(orderRecord?.status);
+
   return (
-    <div className="min-h-screen bg-neutral-50 text-neutral-900 flex flex-col font-sans select-none">
-      {/* Luxury Top Header */}
-      <header className="border-b border-neutral-200 bg-white sticky top-0 z-40">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
+    <div className="min-h-screen bg-[#fafafa] text-neutral-900 font-sans select-none flex flex-col">
+      {/* Header */}
+      <header className="border-b border-neutral-200 bg-white sticky top-0 z-30">
+        <div className="max-w-4xl mx-auto px-6 py-3.5 flex items-center justify-between">
           <button
+            type="button"
             onClick={() => navigate('/')}
-            className="flex items-center space-x-2 text-xs font-semibold text-neutral-600 hover:text-neutral-900 transition-colors cursor-pointer"
+            className="flex items-center space-x-2 text-xs font-semibold text-neutral-600 hover:text-neutral-900 transition-colors"
           >
-            <ArrowLeft size={16} />
-            <span>Return to Store</span>
+            <ArrowLeft size={15} />
+            <span>Return to Storefront</span>
           </button>
 
-          <h1
+          <span
             onClick={() => navigate('/')}
-            className="font-serif text-2xl font-extrabold text-neutral-900 cursor-pointer"
+            className="font-serif text-xl font-bold tracking-tight text-neutral-900 cursor-pointer"
           >
             Ajrah Noor
-          </h1>
+          </span>
 
-          <button
-            onClick={() => navigate('/dashboard/orders')}
-            className="bg-[#1c1917] hover:bg-neutral-800 text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center space-x-1.5 shadow-xs transition-all cursor-pointer"
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchOrderDetails(true)}
+            disabled={refreshing}
+            className="text-xs h-8"
           >
-            <LayoutDashboard size={13} className="text-amber-300" />
-            <span className="uppercase tracking-wider text-[10px]">Portal</span>
-          </button>
+            <RefreshCw size={13} className={`mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </Button>
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="max-w-2xl mx-auto px-6 py-12 flex-1 w-full space-y-6">
+      {/* Main Track Section */}
+      <main className="max-w-3xl mx-auto px-6 py-10 flex-1 w-full space-y-6">
         <div className="text-center space-y-1">
-          <span className="text-[10px] uppercase font-bold tracking-[0.25em] text-amber-700">
-            CUSTOMER ORDER DASHBOARD
-          </span>
-          <h2 className="text-3xl font-serif font-normal text-neutral-900">
-            Order Status & Inquiries
+          <Badge variant="outline" className="text-[10px] uppercase font-mono tracking-widest text-amber-800 border-amber-300">
+            Real-Time Order Tracking
+          </Badge>
+          <h2 className="text-3xl font-serif text-neutral-900 font-normal">
+            Atelier Order Status
           </h2>
+          <p className="text-xs text-neutral-500 font-medium">
+            Live lifecycle tracking backed by transaction-safe optimistic concurrency control.
+          </p>
         </div>
 
         {messageSentSuccess && (
@@ -207,191 +233,198 @@ export const CustomerOrderPage: React.FC = () => {
         )}
 
         {loading ? (
-          <div className="bg-white border border-neutral-200 rounded-3xl p-12 text-center space-y-3 shadow-xs">
-            <Loader2 className="w-8 h-8 text-amber-600 animate-spin mx-auto" />
-            <p className="text-xs font-semibold text-neutral-600">Fetching order status from database...</p>
-          </div>
+          <Card className="p-12 text-center bg-white border-neutral-200 shadow-xs space-y-3">
+            <Loader2 className="w-8 h-8 text-neutral-800 animate-spin mx-auto" />
+            <p className="text-xs font-semibold text-neutral-600">
+              Querying PostgreSQL order lifecycle state...
+            </p>
+          </Card>
+        ) : error && !orderRecord ? (
+          <Card className="p-8 text-center bg-white border-rose-200 shadow-xs space-y-4">
+            <AlertCircle size={32} className="text-rose-500 mx-auto" />
+            <div className="space-y-1">
+              <h3 className="font-serif text-lg font-bold text-neutral-900">Order Inquiry Notice</h3>
+              <p className="text-xs text-rose-600 max-w-md mx-auto">{error}</p>
+            </div>
+            {requiresAuth && (
+              <Button variant="luxury" size="sm" onClick={() => navigate('/login')}>
+                Sign In to View Customer Orders
+              </Button>
+            )}
+          </Card>
         ) : orderRecord ? (
-          <div className="bg-white border border-neutral-200 rounded-3xl p-8 shadow-sm space-y-8">
-            {/* Order Header Summary */}
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-neutral-100 pb-6">
-              <div>
-                <span className="text-[10px] font-mono uppercase tracking-widest text-neutral-400">
-                  ORDER REFERENCE
-                </span>
-                <h3 className="font-serif text-xl font-bold text-neutral-900">
-                  {orderRecord.order_number || orderRecord.id}
-                </h3>
-                <p className="text-xs text-neutral-500 mt-0.5">
-                  Placed on {new Date(orderRecord.created_at).toLocaleDateString(undefined, { dateStyle: 'medium' })}
-                </p>
-              </div>
-
-              <div>{getStatusBadge(orderRecord.status)}</div>
-            </div>
-
-            {/* Customer & Shipping Details */}
-            <div className="bg-neutral-50 rounded-2xl p-5 border border-neutral-200 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block mb-1">
-                  Customer & Contact Phone
-                </span>
-                <p className="font-bold text-neutral-900">{orderRecord.customer_name || 'Valued Customer'}</p>
-                <p className="text-neutral-600 font-mono mt-0.5">
-                  📞 {orderRecord.shipping_address?.phone || '+966 50 123 4567'}
-                </p>
-              </div>
-
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block mb-1">
-                  Shipping / Delivery Address
-                </span>
-                <p className="font-semibold text-neutral-800">
-                  📍 {orderRecord.shipping_address?.street_line1 || 'King Fahd Road'}, {orderRecord.shipping_address?.city || 'Riyadh'}
-                </p>
-                <p className="text-neutral-500 mt-0.5">
-                  {orderRecord.shipping_address?.country || 'Saudi Arabia'}
-                </p>
-              </div>
-            </div>
-
-            {/* SECTION 1: ORDER STATUS TIMELINE */}
-            <div className="space-y-4">
-              <h4 className="text-xs font-bold uppercase tracking-wider text-neutral-700">
-                Order Status Progress
-              </h4>
-
-              <div className="grid grid-cols-4 gap-2 pt-2 text-center">
-                <div className="space-y-2">
-                  <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center mx-auto text-xs font-bold">
-                    ✓
+          <div className="space-y-6">
+            {/* Status Timeline Card */}
+            <Card className="border-neutral-200/90 shadow-sm bg-white overflow-hidden">
+              <CardHeader className="bg-neutral-50/50 pb-4 border-b border-neutral-100">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <span className="text-[10px] font-mono uppercase tracking-widest text-neutral-400 block font-bold">
+                      Order Reference
+                    </span>
+                    <CardTitle className="font-serif text-xl font-bold text-neutral-900">
+                      {orderRecord.order_number || orderRecord.id}
+                    </CardTitle>
+                    <CardDescription className="text-xs text-neutral-500 mt-0.5">
+                      Placed on{' '}
+                      {new Date(orderRecord.created_at).toLocaleDateString(undefined, {
+                        dateStyle: 'medium',
+                      })}
+                    </CardDescription>
                   </div>
-                  <span className="block text-[11px] font-semibold text-neutral-900">Order Placed</span>
+
+                  <Badge
+                    variant={progressInfo.badge as 'default' | 'secondary' | 'destructive' | 'outline'}
+                    className="text-xs font-bold px-3 py-1 font-mono uppercase tracking-wider"
+                  >
+                    {orderRecord.status}
+                  </Badge>
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-6 pt-6">
+                {/* Fulfillment Progress Bar */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="font-semibold text-neutral-800 flex items-center space-x-1.5">
+                      <Truck size={14} className="text-amber-800" />
+                      <span>{progressInfo.label}</span>
+                    </span>
+                    <span className="font-mono font-bold text-neutral-500">{progressInfo.pct}%</span>
+                  </div>
+                  <Progress value={progressInfo.pct} className="h-2 bg-neutral-100" />
+
+                  <div className="grid grid-cols-4 text-[10px] text-neutral-400 font-mono text-center pt-1">
+                    <span className={progressInfo.pct >= 25 ? 'font-bold text-neutral-900' : ''}>
+                      Pending
+                    </span>
+                    <span className={progressInfo.pct >= 50 ? 'font-bold text-neutral-900' : ''}>
+                      Reserved
+                    </span>
+                    <span className={progressInfo.pct >= 75 ? 'font-bold text-neutral-900' : ''}>
+                      Tailored
+                    </span>
+                    <span className={progressInfo.pct >= 100 ? 'font-bold text-neutral-900' : ''}>
+                      Shipped
+                    </span>
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto text-xs font-bold ${
-                    orderRecord.status !== 'Pending' ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white animate-pulse'
-                  }`}>
-                    {orderRecord.status !== 'Pending' ? '✓' : '2'}
+                <Separator />
+
+                {/* Delivery & Payment Information */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div className="p-4 bg-neutral-50 rounded-xl border border-neutral-200/80 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 flex items-center space-x-1">
+                      <MapPin size={12} />
+                      <span>Delivery Recipient</span>
+                    </span>
+                    <p className="font-bold text-neutral-900">{orderRecord.customer_name}</p>
+                    <p className="text-neutral-500">{orderRecord.shipping_address?.phone || '+966 50 123 4567'}</p>
+                    <p className="text-neutral-500">
+                      {orderRecord.shipping_address?.street_line1 || 'Olaya District'},{' '}
+                      {orderRecord.shipping_address?.city || 'Riyadh'}, Saudi Arabia
+                    </p>
                   </div>
-                  <span className="block text-[11px] font-semibold text-neutral-900">Processing</span>
+
+                  <div className="p-4 bg-neutral-50 rounded-xl border border-neutral-200/80 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 flex items-center space-x-1">
+                      <CreditCard size={12} />
+                      <span>Settlement</span>
+                    </span>
+                    <p className="font-bold text-neutral-900">{orderRecord.payment_method}</p>
+                    <p className="text-neutral-500">
+                      Total: <span className="font-bold text-amber-800">{orderRecord.currency} {orderRecord.amount.toFixed(2)}</span>
+                    </p>
+                    <span className="inline-flex items-center space-x-1 text-[10px] text-emerald-700 font-semibold">
+                      <ShieldCheck size={12} />
+                      <span>Authenticated & Idempotent</span>
+                    </span>
+                  </div>
                 </div>
 
+                {/* Ordered Pieces Table */}
                 <div className="space-y-2">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto text-xs font-bold ${
-                    orderRecord.status === 'Processing' || orderRecord.status === 'Delivered'
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-neutral-200 text-neutral-500'
-                  }`}>
-                    {orderRecord.status === 'Processing' || orderRecord.status === 'Delivered' ? '✓' : '3'}
+                  <h4 className="font-serif font-bold text-sm text-neutral-900">
+                    Ordered Atelier Pieces ({itemsList.length})
+                  </h4>
+                  <div className="border border-neutral-200 rounded-xl divide-y divide-neutral-100 overflow-hidden">
+                    {itemsList.map((item, idx) => (
+                      <div key={idx} className="p-3.5 flex justify-between items-center text-xs bg-white">
+                        <div>
+                          <p className="font-semibold text-neutral-900">{item.name}</p>
+                          <p className="text-[11px] text-neutral-400 font-mono">
+                            Quantity: {item.quantity}
+                          </p>
+                        </div>
+                        <span className="font-mono font-bold text-neutral-900">
+                          {orderRecord.currency} {(item.price * item.quantity).toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                  <span className="block text-[11px] font-semibold text-neutral-900">In Transit</span>
                 </div>
+              </CardContent>
 
-                <div className="space-y-2">
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto text-xs font-bold ${
-                    orderRecord.status === 'Delivered'
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-neutral-200 text-neutral-500'
-                  }`}>
-                    {orderRecord.status === 'Delivered' ? '✓' : '4'}
-                  </div>
-                  <span className="block text-[11px] font-semibold text-neutral-900">Delivered</span>
-                </div>
-              </div>
-            </div>
+              <CardFooter className="bg-neutral-50 p-6 border-t border-neutral-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setMessageOpen(true)}
+                  className="w-full sm:w-auto text-xs"
+                >
+                  <MessageSquare size={14} className="mr-1.5" />
+                  <span>Contact Atelier Regarding Order</span>
+                </Button>
 
-            {/* SECTION 2: MESSAGE OPTION */}
-            <div className="bg-cream/40 border border-amber-200/80 rounded-2xl p-6 space-y-3">
-              <div className="flex items-center space-x-2 text-amber-900 font-serif font-bold text-base">
-                <MessageSquare size={18} className="text-amber-700" />
-                <span>Message Atelier Regarding Order</span>
-              </div>
-              <p className="text-xs text-neutral-600 leading-relaxed">
-                Need to update your delivery address, request custom sizing, or check delivery timelines? Click below to send a direct message to our Atelier staff.
-              </p>
-
-              <button
-                onClick={() => setMessageOpen(true)}
-                className="w-full bg-[#1c1917] hover:bg-neutral-800 text-white text-xs font-bold tracking-wider uppercase py-3 rounded-xl flex items-center justify-center space-x-2 transition-all cursor-pointer shadow-xs"
-              >
-                <MessageSquare size={14} />
-                <span>Send Message / Inquiry</span>
-              </button>
-            </div>
+                <Button
+                  variant="luxury"
+                  size="sm"
+                  onClick={() => navigate('/')}
+                  className="w-full sm:w-auto text-xs font-mono uppercase tracking-wider"
+                >
+                  Continue Shopping
+                </Button>
+              </CardFooter>
+            </Card>
           </div>
-        ) : (
-          <div className="bg-white border border-neutral-200 rounded-3xl p-12 text-center space-y-3 shadow-xs">
-            <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
-            <h3 className="font-bold text-neutral-900 text-base">Order Not Found</h3>
-            <p className="text-xs text-neutral-500 max-w-sm mx-auto">
-              We couldn't locate order reference "{id}". Please check your order ID or return to the main store.
-            </p>
-            <Button variant="outline" size="sm" onClick={() => navigate('/')} className="mt-4">
-              Return to Store
-            </Button>
-          </div>
-        )}
+        ) : null}
+
+        {/* Message Atelier Dialog */}
+        <Dialog open={messageOpen} onOpenChange={setMessageOpen}>
+          <DialogContent className="sm:max-w-md bg-white">
+            <DialogHeader>
+              <DialogTitle className="font-serif text-lg font-bold text-neutral-900">
+                Inquire With Atelier
+              </DialogTitle>
+              <DialogDescription className="text-xs text-neutral-500">
+                Reference: {orderRecord?.order_number || orderRecord?.id}
+              </DialogDescription>
+            </DialogHeader>
+
+            <form onSubmit={handleSendMessage} className="space-y-4 pt-2">
+              <textarea
+                rows={4}
+                value={userMessage}
+                onChange={(e) => setUserMessage(e.target.value)}
+                required
+                placeholder="Inquire about delivery timeline, address modification, or styling adjustments..."
+                className="w-full p-3 bg-white border border-neutral-200 rounded-xl text-neutral-900 text-xs placeholder-neutral-400 focus:outline-none focus:border-neutral-900"
+              />
+
+              <DialogFooter className="flex justify-end space-x-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setMessageOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="luxury" size="sm">
+                  <Send size={13} className="mr-1.5" />
+                  <span>Send Message</span>
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
       </main>
-
-      {/* Message Atelier Modal */}
-      <Modal
-        isOpen={messageOpen}
-        onClose={() => setMessageOpen(false)}
-        title={`Message Atelier - Order ${orderRecord?.order_number || ''}`}
-      >
-        <form onSubmit={handleSendMessage} className="space-y-4 pt-2 font-sans">
-          <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl text-xs">
-            <p className="font-bold text-neutral-900">
-              Reference: {orderRecord?.order_number || orderRecord?.id}
-            </p>
-            <p className="text-neutral-500">
-              Product: {orderRecord?.product_name} • Status: {orderRecord?.status}
-            </p>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-neutral-700 mb-1">
-              Your Message or Inquiry
-            </label>
-            <textarea
-              rows={4}
-              value={userMessage}
-              onChange={(e) => setUserMessage(e.target.value)}
-              required
-              placeholder="Ask about custom tailoring, delivery updates, or modifications..."
-              className="w-full p-3 bg-white border border-neutral-300 rounded-xl text-neutral-900 text-xs placeholder-neutral-400 focus:outline-none focus:border-neutral-900"
-            />
-          </div>
-
-          <div className="flex space-x-3 justify-end pt-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setMessageOpen(false)}
-              className="rounded-xl"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              className="rounded-xl flex items-center space-x-1.5"
-            >
-              <Send size={13} />
-              <span>Send Message</span>
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Footer */}
-      <footer className="border-t border-neutral-200 bg-white py-6 px-6 text-center text-xs text-neutral-500">
-        © {new Date().getFullYear()} Ajrah Noor Couture. All rights reserved.
-      </footer>
     </div>
   );
 };

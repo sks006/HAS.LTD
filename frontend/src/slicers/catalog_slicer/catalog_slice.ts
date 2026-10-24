@@ -1,7 +1,12 @@
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { apiFetch } from '@/shared/api/client';
-import { ENDPOINTS } from '@/shared/api/endpoints';
 import type { ProductDto } from '@/shared/types/contracts';
+import {
+  fetchCatalogProducts as fetchCatalogProductsData,
+  fetchProductById as fetchProductByIdData,
+  createProductFetch as createProductData,
+  updateProductFetch as updateProductData,
+  deleteProductFetch as deleteProductData,
+} from './catalog_fetch';
 
 // Types for payloads
 export interface CreateProductPayload {
@@ -31,21 +36,7 @@ export const fetchCatalogProducts = createAsyncThunk<ProductDto[]>(
   'products/fetchCatalog',
   async (_, { rejectWithValue }) => {
     try {
-      const rawData = await apiFetch<any[]>(ENDPOINTS.PRODUCTS);
-      return rawData.map((item, idx) => ({
-        id: item.id || `prod-${idx}`,
-        name: item.name || 'Untitled Piece',
-        category: item.category || item.fabric_type || 'no category',
-        price: typeof item.price === 'number' ? item.price : (item.price_cents ? item.price_cents / 100 : 1999),
-        currency: 'SAR',
-        image: (item.images && item.images[0]) || item.image,
-        alt: item.name || 'Product Image',
-        sale: true,
-        rating: item.rating,
-        reviews: item.reviews,
-        stock: typeof item.stock === 'number' ? item.stock : 0,
-        incoming: typeof item.incoming === 'number' ? item.incoming : 0,
-      }));
+      return await fetchCatalogProductsData();
     } catch (error) {
       return rejectWithValue(error);
     }
@@ -56,7 +47,7 @@ export const fetchProductById = createAsyncThunk<ProductDto, string>(
   'products/fetchById',
   async (id, { rejectWithValue }) => {
     try {
-      return await apiFetch<ProductDto>(ENDPOINTS.PRODUCT_BY_ID(id));
+      return await fetchProductByIdData(id);
     } catch (error) {
       return rejectWithValue(error);
     }
@@ -67,10 +58,7 @@ export const createProduct = createAsyncThunk<ProductDto, CreateProductPayload>(
   'products/create',
   async (payload, { rejectWithValue }) => {
     try {
-      return await apiFetch<ProductDto>(ENDPOINTS.PRODUCTS, {
-        method: 'POST',
-        body: payload,
-      });
+      return await createProductData(payload);
     } catch (error) {
       return rejectWithValue(error);
     }
@@ -81,10 +69,7 @@ export const updateProduct = createAsyncThunk<ProductDto, { id: string; payload:
   'products/update',
   async ({ id, payload }, { rejectWithValue }) => {
     try {
-      return await apiFetch<ProductDto>(ENDPOINTS.PRODUCT_BY_ID(id), {
-        method: 'PUT',
-        body: payload,
-      });
+      return await updateProductData(id, payload);
     } catch (error) {
       return rejectWithValue(error);
     }
@@ -95,9 +80,7 @@ export const deleteProduct = createAsyncThunk<void, string>(
   'products/delete',
   async (id, { rejectWithValue }) => {
     try {
-      await apiFetch<void>(ENDPOINTS.PRODUCT_BY_ID(id), {
-        method: 'DELETE',
-      });
+      await deleteProductData(id);
     } catch (error) {
       return rejectWithValue(error);
     }
