@@ -71,7 +71,7 @@ impl TestHarness {
         role: UserRole,
         status: UserStatus,
         auth_version: i64,
-    ) -> (UserId, String, String) {
+    ) -> (UserId, String, String, SessionId) {
         let user_id = UserId::now_v7();
         let email = format!("test_{}@has.ltd", Uuid::now_v7());
         let password = "Password123!".to_string();
@@ -148,7 +148,7 @@ impl TestHarness {
         .await
         .unwrap();
 
-        (user_id, email, password)
+        (user_id, email, password, session_id)
     }
 
     fn issue_token(
@@ -159,6 +159,7 @@ impl TestHarness {
         scope: &str,
         exp_offset_secs: i64,
         nbf_offset_secs: i64,
+        sid: Uuid,
     ) -> String {
         let now = chrono::Utc::now().timestamp();
         let claims = Claims {
@@ -169,6 +170,7 @@ impl TestHarness {
             iat: now,
             nbf: now + nbf_offset_secs,
             jti: Uuid::now_v7(),
+            sid,
             auth_version,
             role: role.to_string(),
             scope: scope.to_string(),
@@ -180,31 +182,39 @@ impl TestHarness {
         &self,
         method: &str,
         uri: &str,
-        token: Option<&str>,
-        body: Option<Value>,
+        bearer_token: Option<&str>,
+        json_body: Option<Value>,
     ) -> (StatusCode, Value) {
+        let app = self.router();
         let mut builder = Request::builder().method(method).uri(uri);
 
-        if let Some(t) = token {
-            builder = builder.header(header::AUTHORIZATION, format!("Bearer {}", t));
+        let b = Uuid::new_v4().into_bytes();
+        let unique_ip = format!("10.{}.{}.{}", (b[0] & 0x7f) + 1, b[1], b[2]);
+        builder = builder.header("x-forwarded-for", unique_ip);
+
+        if let Some(token) = bearer_token {
+            builder = builder.header(header::AUTHORIZATION, format!("Bearer {}", token));
         }
 
-        let body_bytes = if let Some(b) = body {
+        let body = if let Some(payload) = json_body {
             builder = builder.header(header::CONTENT_TYPE, "application/json");
-            Body::from(serde_json::to_vec(&b).unwrap())
+            Body::from(serde_json::to_vec(&payload).unwrap())
         } else {
             Body::empty()
         };
 
-        let req = builder.body(body_bytes).unwrap();
-        let app = self.router();
+        let req = builder.body(body).unwrap();
         let res = app.oneshot(req).await.unwrap();
         let status = res.status();
 
-        let collected = res.into_body().collect().await.unwrap().to_bytes();
-        let json_body: Value = serde_json::from_slice(&collected).unwrap_or(Value::Null);
+        let bytes = res.into_body().collect().await.unwrap().to_bytes();
+        let json_val = if bytes.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap_or(Value::String(String::from_utf8_lossy(&bytes).into_owned()))
+        };
 
-        (status, json_body)
+        (status, json_val)
     }
 }
 
@@ -215,8 +225,8 @@ impl TestHarness {
 #[tokio::test]
 async fn test_suite_a_middleware_rejections() {
     let harness = TestHarness::new().await;
-    let (user_id, _, _) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
-    let valid_token = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 0);
+    let (user_id, _, _, session_id) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
+    let valid_token = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 0, session_id.into_inner());
 
     // 1. No Authorization header -> 401 invalid_token
     let (status, body) = harness.send_request("GET", "/auth/me", None, None).await;
@@ -239,6 +249,7 @@ async fn test_suite_a_middleware_rejections() {
         iat: now,
         nbf: now,
         jti: Uuid::now_v7(),
+        sid: session_id.into_inner(),
         auth_version: 1,
         role: "CUSTOMER".to_string(),
         scope: "access".to_string(),
@@ -262,9 +273,7 @@ async fn test_suite_a_middleware_rejections() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body["error"]["code"], "invalid_token");
 
-    // 5. Token with alg=none -> 401 invalid_token
-    let mut header_none = Header::new(Algorithm::RS256);
-    header_none.kid = Some("1".to_string());
+    // 5. Token with alg=none -> 401 invalid_token [FIX-P4-S1: unused header_none removed]
     let token_alg_none = format!(
         "{}.{}.",
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b"{\"alg\":\"none\",\"typ\":\"JWT\",\"kid\":\"1\"}"),
@@ -285,32 +294,32 @@ async fn test_suite_a_middleware_rejections() {
     assert_eq!(body["error"]["code"], "invalid_token");
 
     // 7. Token with scope=mfa_pending on normal route -> 401 invalid_token
-    let mfa_pending_token = harness.issue_token(user_id, UserRole::Customer, 1, "mfa_pending", 900, 0);
+    let mfa_pending_token = harness.issue_token(user_id, UserRole::Customer, 1, "mfa_pending", 900, 0, session_id.into_inner());
     let (status, body) = harness.send_request("GET", "/auth/me", Some(&mfa_pending_token), None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body["error"]["code"], "invalid_token");
 
     // 8. Expired token -> 401 token_expired
-    let expired_token = harness.issue_token(user_id, UserRole::Customer, 1, "access", -60, -120);
+    let expired_token = harness.issue_token(user_id, UserRole::Customer, 1, "access", -3600, -7200, session_id.into_inner());
     let (status, body) = harness.send_request("GET", "/auth/me", Some(&expired_token), None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body["error"]["code"], "token_expired");
 
     // 9. Token with nbf in future -> 401 token_expired
-    let future_nbf_token = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 300);
+    let future_nbf_token = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 300, session_id.into_inner());
     let (status, body) = harness.send_request("GET", "/auth/me", Some(&future_nbf_token), None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body["error"]["code"], "token_expired");
 
     // 10. auth_version mismatch -> 401 token_revoked
-    let token_version_mismatch = harness.issue_token(user_id, UserRole::Customer, 999, "access", 900, 0);
+    let token_version_mismatch = harness.issue_token(user_id, UserRole::Customer, 999, "access", 900, 0, session_id.into_inner());
     let (status, body) = harness.send_request("GET", "/auth/me", Some(&token_version_mismatch), None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     assert_eq!(body["error"]["code"], "token_revoked");
 
     // 11. status=SUSPENDED with otherwise valid token -> 403 account_suspended
-    let (suspended_id, _, _) = harness.create_user(UserRole::Customer, UserStatus::Suspended, 1).await;
-    let suspended_token = harness.issue_token(suspended_id, UserRole::Customer, 1, "access", 900, 0);
+    let (suspended_id, _, _, susp_session) = harness.create_user(UserRole::Customer, UserStatus::Suspended, 1).await;
+    let suspended_token = harness.issue_token(suspended_id, UserRole::Customer, 1, "access", 900, 0, susp_session.into_inner());
     let (status, body) = harness.send_request("GET", "/auth/me", Some(&suspended_token), None).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(body["error"]["code"], "account_suspended");
@@ -321,8 +330,8 @@ async fn test_suite_a_middleware_rejections() {
     assert_eq!(body["error"]["code"], "permission_denied");
 
     // 13. MODERATOR hitting ADMIN route (/admin/metrics) -> 403 permission_denied
-    let (mod_id, _, _) = harness.create_user(UserRole::Moderator, UserStatus::Active, 1).await;
-    let mod_token = harness.issue_token(mod_id, UserRole::Moderator, 1, "access", 900, 0);
+    let (mod_id, _, _, mod_session) = harness.create_user(UserRole::Moderator, UserStatus::Active, 1).await;
+    let mod_token = harness.issue_token(mod_id, UserRole::Moderator, 1, "access", 900, 0, mod_session.into_inner());
     let (status, body) = harness.send_request("GET", "/admin/metrics", Some(&mod_token), None).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert_eq!(body["error"]["code"], "permission_denied");
@@ -342,15 +351,15 @@ async fn test_suite_b_middleware_accepts() {
     let harness = TestHarness::new().await;
 
     // 1. CUSTOMER hitting CUSTOMER route (/auth/me) -> 200
-    let (cust_id, _, _) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
-    let cust_token = harness.issue_token(cust_id, UserRole::Customer, 1, "access", 900, 0);
+    let (cust_id, _, _, cust_sess) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
+    let cust_token = harness.issue_token(cust_id, UserRole::Customer, 1, "access", 900, 0, cust_sess.into_inner());
     let (status, body) = harness.send_request("GET", "/auth/me", Some(&cust_token), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["id"], cust_id.into_inner().to_string());
 
     // 2. MODERATOR hitting CUSTOMER route (/auth/me) -> 200
-    let (mod_id, _, _) = harness.create_user(UserRole::Moderator, UserStatus::Active, 1).await;
-    let mod_token = harness.issue_token(mod_id, UserRole::Moderator, 1, "access", 900, 0);
+    let (mod_id, _, _, mod_sess) = harness.create_user(UserRole::Moderator, UserStatus::Active, 1).await;
+    let mod_token = harness.issue_token(mod_id, UserRole::Moderator, 1, "access", 900, 0, mod_sess.into_inner());
     let (status, body) = harness.send_request("GET", "/auth/me", Some(&mod_token), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["role"], "MODERATOR");
@@ -360,8 +369,8 @@ async fn test_suite_b_middleware_accepts() {
     assert_eq!(status, StatusCode::OK);
 
     // 4. ADMIN hitting ADMIN route (/admin/metrics) -> 200
-    let (admin_id, _, _) = harness.create_user(UserRole::Admin, UserStatus::Active, 1).await;
-    let admin_token = harness.issue_token(admin_id, UserRole::Admin, 1, "access", 900, 0);
+    let (admin_id, _, _, admin_sess) = harness.create_user(UserRole::Admin, UserStatus::Active, 1).await;
+    let admin_token = harness.issue_token(admin_id, UserRole::Admin, 1, "access", 900, 0, admin_sess.into_inner());
     let (status, body) = harness.send_request("GET", "/admin/metrics", Some(&admin_token), None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["database_status"], "Online");
@@ -374,8 +383,8 @@ async fn test_suite_b_middleware_accepts() {
 #[tokio::test]
 async fn test_suite_c_redis_behavior() {
     let harness = TestHarness::new().await;
-    let (user_id, email, password) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
-    let token = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 0);
+    let (user_id, email, password, session_id) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
+    let token = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 0, session_id.into_inner());
 
     let auth_version_key = format!("auth_version:{}", user_id.into_inner());
     let user_status_key = format!("user_status:{}", user_id.into_inner());
@@ -385,18 +394,28 @@ async fn test_suite_c_redis_behavior() {
         let _: Result<(), _> = redis.del(&auth_version_key).await;
         let _: Result<(), _> = redis.del(&user_status_key).await;
 
+        let queries_before = harness.state.get_db_query_count();
+
         // 1. auth_version cache miss -> DB fallback -> request succeeds & cache populated
         let (status, _) = harness.send_request("GET", "/auth/me", Some(&token), None).await;
         assert_eq!(status, StatusCode::OK);
+
+        let queries_after_miss = harness.state.get_db_query_count();
+        assert_eq!(queries_after_miss, queries_before + 1, "Cache miss must increment DB query counter by 1");
 
         let cached_version: Option<i64> = redis.get(&auth_version_key).await.unwrap();
         let cached_status: Option<String> = redis.get(&user_status_key).await.unwrap();
         assert_eq!(cached_version, Some(1));
         assert_eq!(cached_status.as_deref(), Some("ACTIVE"));
 
-        // 2. auth_version cache hit -> warm cache succeeds
-        let (status_warm, _) = harness.send_request("GET", "/auth/me", Some(&token), None).await;
-        assert_eq!(status_warm, StatusCode::OK);
+        // 2. auth_version cache hit -> warm cache succeeds with ZERO DB queries [REQUIRED-2]
+        let before = harness.state.get_db_query_count();
+        let (status, _) = harness.send_request("GET", "/auth/me",
+            Some(&token), None).await;
+        assert_eq!(status, StatusCode::OK);
+        let after = harness.state.get_db_query_count();
+        assert_eq!(after, before,
+            "warm cache must not hit the database");
     }
 
     // 3. Redis down simulation -> middleware falls through to DB, request still succeeds
@@ -441,7 +460,7 @@ async fn test_suite_d_argon2_gate() {
     let harness = TestHarness::new().await;
     let mut users = Vec::new();
     for _ in 0..4 {
-        let (_, email, password) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
+        let (_, email, password, _) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
         users.push((email, password));
     }
 
@@ -488,7 +507,7 @@ async fn test_suite_d_argon2_gate() {
     let permit3 = custom_semaphore.clone().acquire_owned().await.unwrap();
     let permit4 = custom_semaphore.clone().acquire_owned().await.unwrap();
 
-    let (_, test_email, test_pwd) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
+    let (_, test_email, test_pwd, _) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
     let constrained_app = build_router(constrained_state.clone());
     let req = Request::builder()
         .method("POST")
@@ -505,6 +524,14 @@ async fn test_suite_d_argon2_gate() {
     drop(permit2);
     drop(permit3);
     drop(permit4);
+
+    // Rate limit assumption [FIX-P4-S5]:
+    // The previous request received HTTP 503 (concurrency gate timeout), which did not increment
+    // the email authentication failure rate limiter. To maintain total test isolation, we also
+    // explicitly clear the Redis rate limiter keys.
+    if let Some(mut redis) = harness.state.redis.clone() {
+        let _: Result<(), _> = redis.del(format!("rl:auth:login:email:{}", test_email.to_lowercase())).await;
+    }
 
     let drain_app = build_router(constrained_state);
     let req = Request::builder()
@@ -526,8 +553,8 @@ async fn test_suite_e_password_reset_and_invalidation_sites() {
     let harness = TestHarness::new().await;
 
     // FIX-C3-PHASE4: test_password_reset_revokes_outstanding_sessions
-    let (user_id, _, _) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
-    let old_token = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 0);
+    let (user_id, _, _, session_id) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
+    let old_token = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 0, session_id.into_inner());
 
     // Initial check: token is accepted
     let (status, _) = harness.send_request("GET", "/auth/me", Some(&old_token), None).await;
@@ -568,8 +595,8 @@ async fn test_suite_e_password_reset_and_invalidation_sites() {
     // Test the 7 Invalidation Sites from Phase 3 §1.g:
     // Sites 1, 2, 3, 4, 7 (direct auth_version increment):
     for site_num in [1, 2, 3, 4, 7] {
-        let (u_id, _, _) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
-        let token = harness.issue_token(u_id, UserRole::Customer, 1, "access", 900, 0);
+        let (u_id, _, _, s_id) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
+        let token = harness.issue_token(u_id, UserRole::Customer, 1, "access", 900, 0, s_id.into_inner());
 
         // Verify initial acceptance
         let (status, _) = harness.send_request("GET", "/auth/me", Some(&token), None).await;
@@ -594,16 +621,24 @@ async fn test_suite_e_password_reset_and_invalidation_sites() {
         assert_eq!(body["error"]["code"], "token_revoked", "Site {} must emit token_revoked", site_num);
     }
 
-    // Site 5: Account suspension via status change (triggers automatic auth_version bump)
+    // Site 5: Account suspension via status change (triggers automatic auth_version bump) [FIX-P4-S4]
     {
-        let (u_id, _, _) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
-        let token = harness.issue_token(u_id, UserRole::Customer, 1, "access", 900, 0);
+        let (u_id, _, _, s_id) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
+        let token = harness.issue_token(u_id, UserRole::Customer, 1, "access", 900, 0, s_id.into_inner());
 
         sqlx::query("UPDATE users SET status = 'SUSPENDED' WHERE id = $1")
             .bind(u_id.into_inner())
             .execute(&harness.state.db_pool)
             .await
             .unwrap();
+
+        // Assert auth_version went from 1 to 2 via the trigger [FIX-P4-S4]
+        let bumped_version: i64 = sqlx::query_scalar("SELECT auth_version FROM users WHERE id = $1")
+            .bind(u_id.into_inner())
+            .fetch_one(&harness.state.db_pool)
+            .await
+            .unwrap();
+        assert_eq!(bumped_version, 2, "Status change to SUSPENDED must trigger an automatic auth_version bump from 1 to 2");
 
         if let Some(mut redis) = harness.state.redis.clone() {
             let _: Result<(), _> = redis.del(format!("auth_version:{}", u_id.into_inner())).await;
@@ -618,8 +653,8 @@ async fn test_suite_e_password_reset_and_invalidation_sites() {
 
     // Site 6: Role change (triggers automatic auth_version bump)
     {
-        let (u_id, _, _) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
-        let token = harness.issue_token(u_id, UserRole::Customer, 1, "access", 900, 0);
+        let (u_id, _, _, s_id) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
+        let token = harness.issue_token(u_id, UserRole::Customer, 1, "access", 900, 0, s_id.into_inner());
 
         sqlx::query("UPDATE users SET role = 'MODERATOR' WHERE id = $1")
             .bind(u_id.into_inner())
@@ -639,17 +674,213 @@ async fn test_suite_e_password_reset_and_invalidation_sites() {
 }
 
 // ============================================================================
+// FIX-P4-D1: Session ID Semantic Isolation Test
+// ============================================================================
+
+#[tokio::test]
+async fn test_session_id_claims_and_isolation() {
+    let harness = TestHarness::new().await;
+    let (user_id, _, _, session_1) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
+    let session_2 = SessionId::now_v7();
+
+    // Two tokens issued against session_1
+    let token_1a = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 0, session_1.into_inner());
+    let token_1b = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 0, session_1.into_inner());
+
+    // One token issued against session_2
+    let token_2 = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 0, session_2.into_inner());
+
+    let claims_1a = harness.state.jwt_keys.verify_access_token(&token_1a).unwrap();
+    let claims_1b = harness.state.jwt_keys.verify_access_token(&token_1b).unwrap();
+    let claims_2 = harness.state.jwt_keys.verify_access_token(&token_2).unwrap();
+
+    // Two access tokens against the same session share sid
+    assert_eq!(claims_1a.sid, session_1.into_inner());
+    assert_eq!(claims_1b.sid, session_1.into_inner());
+    assert_ne!(claims_1a.jti, claims_1b.jti, "Each token must possess a unique jti");
+
+    // Two access tokens against different sessions do not share sid
+    assert_eq!(claims_2.sid, session_2.into_inner());
+    assert_ne!(claims_1a.sid, claims_2.sid, "Tokens for different sessions must have different sid");
+}
+
+// ============================================================================
+// FIX-P4-S3: Moderator Login Returns 501 mfa_not_yet_available
+// ============================================================================
+
+#[tokio::test]
+async fn test_staff_first_login_provides_enrollment_path() {
+    let harness = TestHarness::new().await;
+    let (mod_id, mod_email, mod_pwd, _) = harness.create_user(UserRole::Moderator, UserStatus::Active, 1).await;
+
+    let payload = json!({
+        "email": mod_email,
+        "password": mod_pwd,
+    });
+
+    let (status, body) = harness.send_request("POST", "/auth/login", None, Some(payload.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["mfa_enrollment_required"], true);
+    assert_eq!(body["expires_in"], 900);
+    let enrollment_token = body["enrollment_token"].as_str().expect("enrollment_token must be present");
+
+    // Verify token claims
+    let claims = harness.state.jwt_keys.verify_access_token(enrollment_token).expect("enrollment_token must be valid");
+    assert_eq!(claims.scope, "mfa_enrollment");
+    assert_eq!(claims.sub, mod_id.into_inner().to_string());
+
+    // Use enrollment_token on /auth/mfa/totp/enroll
+    let (s_enr, b_enr) = harness
+        .send_request(
+            "POST",
+            "/auth/mfa/totp/enroll",
+            Some(enrollment_token),
+            Some(json!({ "current_password": mod_pwd })),
+        )
+        .await;
+    assert_eq!(s_enr, StatusCode::OK);
+    assert!(b_enr["otpauth_url"].is_string());
+    assert!(b_enr["recovery_codes"].is_array());
+
+    // Generate valid TOTP code
+    let (enc_secret,): (Vec<u8>,) = sqlx::query_as(
+        "SELECT secret_encrypted FROM mfa_credentials WHERE user_id = $1",
+    )
+    .bind(mod_id.into_inner())
+    .fetch_one(&harness.state.db_pool)
+    .await
+    .unwrap();
+    let secret = crypto::totp::decrypt_totp_secret(&enc_secret, &harness.state.totp_key).unwrap();
+    let totp = crypto::totp::create_totp_instance(&secret).unwrap();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let code = totp.generate(now);
+
+    // Use enrollment_token on /auth/mfa/totp/verify
+    let (s_ver, b_ver) = harness
+        .send_request(
+            "POST",
+            "/auth/mfa/totp/verify",
+            Some(enrollment_token),
+            Some(json!({ "code": code })),
+        )
+        .await;
+    assert_eq!(s_ver, StatusCode::OK);
+    assert_eq!(b_ver["success"], true);
+
+    // Subsequent login now returns MFA challenge (mfa_required: true)
+    let (s_log2, b_log2) = harness.send_request("POST", "/auth/login", None, Some(payload)).await;
+    assert_eq!(s_log2, StatusCode::OK);
+    assert_eq!(b_log2["mfa_required"], true);
+    let mfa_token = b_log2["mfa_token"].as_str().expect("mfa_token must be present");
+
+    // Complete login challenge
+    let now2 = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+    let code2 = totp.generate(now2);
+    let (s_totp, b_totp) = harness
+        .send_request(
+            "POST",
+            "/auth/login/totp",
+            None,
+            Some(json!({ "mfa_token": mfa_token, "code": code2 })),
+        )
+        .await;
+    assert_eq!(s_totp, StatusCode::OK);
+    assert!(b_totp["access_token"].is_string());
+}
+
+#[tokio::test]
+async fn test_enrollment_token_cannot_access_protected_routes() {
+    let harness = TestHarness::new().await;
+    let (_, mod_email, mod_pwd, _) = harness.create_user(UserRole::Moderator, UserStatus::Active, 1).await;
+
+    let payload = json!({
+        "email": mod_email,
+        "password": mod_pwd,
+    });
+
+    let (status, body) = harness.send_request("POST", "/auth/login", None, Some(payload)).await;
+    assert_eq!(status, StatusCode::OK);
+    let enrollment_token = body["enrollment_token"].as_str().expect("enrollment_token must be present");
+
+    // 1. /auth/me -> 401 invalid_token
+    let (s_me, b_me) = harness.send_request("GET", "/auth/me", Some(enrollment_token), None).await;
+    assert_eq!(s_me, StatusCode::UNAUTHORIZED);
+    assert_eq!(b_me["error"]["code"], "invalid_token");
+
+    // 2. /auth/sessions -> 401 invalid_token
+    let (s_sess, b_sess) = harness.send_request("GET", "/auth/sessions", Some(enrollment_token), None).await;
+    assert_eq!(s_sess, StatusCode::UNAUTHORIZED);
+    assert_eq!(b_sess["error"]["code"], "invalid_token");
+
+    // 3. /auth/mfa/totp/disable -> 401 invalid_token
+    let (s_dis, b_dis) = harness
+        .send_request(
+            "POST",
+            "/auth/mfa/totp/disable",
+            Some(enrollment_token),
+            Some(json!({ "current_password": mod_pwd, "code": "123456" })),
+        )
+        .await;
+    assert_eq!(s_dis, StatusCode::UNAUTHORIZED);
+    assert_eq!(b_dis["error"]["code"], "invalid_token");
+}
+
+#[tokio::test]
+async fn test_moderator_login_with_mfa_returns_challenge() {
+    let harness = TestHarness::new().await;
+    let (mod_id, mod_email, mod_pwd, _) = harness.create_user(UserRole::Moderator, UserStatus::Active, 1).await;
+
+    let (secret_bytes, _) = crypto::totp::generate_totp_secret();
+    let secret_enc = crypto::totp::encrypt_totp_secret(&secret_bytes, &harness.state.totp_key).unwrap();
+    let (_, hashes) = crypto::totp::generate_recovery_codes(10).unwrap();
+    let mfa_id = Uuid::now_v7();
+
+    sqlx::query(
+        r#"
+        INSERT INTO mfa_credentials (id, user_id, kind, secret_encrypted, recovery_codes_hash, confirmed_at, created_at)
+        VALUES ($1, $2, 'totp', $3, $4, now(), now())
+        "#,
+    )
+    .bind(mfa_id)
+    .bind(mod_id.into_inner())
+    .bind(&secret_enc)
+    .bind(&hashes)
+    .execute(&harness.state.db_pool)
+    .await
+    .unwrap();
+
+    let payload = json!({
+        "email": mod_email,
+        "password": mod_pwd,
+    });
+
+    let (status, body) = harness.send_request("POST", "/auth/login", None, Some(payload)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["mfa_required"], true);
+    let mfa_token = body["mfa_token"].as_str().expect("mfa_token must be present");
+    let claims = harness.state.jwt_keys.verify_access_token(mfa_token).expect("mfa_token must be valid");
+    assert_eq!(claims.scope, "mfa_pending");
+    assert_eq!(claims.sub, mod_id.into_inner().to_string());
+}
+
+// ============================================================================
 // TEST SUITE F: Health and Metrics Endpoints
 // ============================================================================
 
 #[tokio::test]
-async fn test_suite_f_health_and_metrics() {
+async fn test_health_check() {
     let harness = TestHarness::new().await;
 
     // 1. /health returns 200 with {"status":"ok"}
     let (status, body) = harness.send_request("GET", "/health", None, None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body, json!({ "status": "ok" }));
+    println!("Health check body: {:?}", body);
+}
+
+#[tokio::test]
+async fn test_metrics_endpoint() {
+    let harness = TestHarness::new().await;
 
     // 2. /metrics returns 200 with text/plain Prometheus format
     let app = harness.router();
@@ -668,8 +899,8 @@ async fn test_suite_f_health_and_metrics() {
 #[tokio::test]
 async fn test_suite_g_error_shape_contract() {
     let harness = TestHarness::new().await;
-    let (user_id, _, _) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
-    let valid_token = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 0);
+    let (user_id, _, _, session_id) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
+    let valid_token = harness.issue_token(user_id, UserRole::Customer, 1, "access", 900, 0, session_id.into_inner());
 
     // Assert exact error JSON shape on 401 invalid_token
     let (status_401, body_401) = harness.send_request("GET", "/auth/me", None, None).await;
@@ -691,4 +922,67 @@ fn assert_exact_error_shape(val: &Value, expected_code: &str) {
     assert_eq!(error_obj.len(), 2, "'error' object must contain exactly two keys: 'code' and 'message'");
     assert_eq!(error_obj.get("code").unwrap().as_str().unwrap(), expected_code);
     assert!(error_obj.get("message").unwrap().is_string(), "'message' must be a string");
+}
+
+// ============================================================================
+// REQUIRED-1: Audit Events On Login Failure Paths
+// ============================================================================
+
+#[tokio::test]
+async fn test_failed_login_emits_audit_row() {
+    let harness = TestHarness::new().await;
+    let (user_id, email, _pwd, _) = harness.create_user(UserRole::Customer, UserStatus::Active, 1).await;
+
+    let payload = json!({
+        "email": email,
+        "password": "WrongPassword123!",
+    });
+
+    let (status, body) = harness.send_request("POST", "/auth/login", None, Some(payload)).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(body["error"]["code"], "invalid_credentials");
+
+    let row: (String, Value) = sqlx::query_as(
+        "SELECT event, metadata FROM audit_log WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1"
+    )
+    .bind(user_id.into_inner())
+    .fetch_one(&harness.state.db_pool)
+    .await
+    .unwrap();
+
+    assert_eq!(row.0, "auth.login.failed_credentials");
+    let meta_str = row.1.to_string();
+    assert!(!meta_str.contains("WrongPassword123!"), "Metadata must never contain plaintext password");
+    assert!(!meta_str.contains("argon2id"), "Metadata must never contain password hashes");
+    assert!(!meta_str.contains("secret"), "Metadata must never contain secret keys");
+    assert!(row.1.get("attempted_email_domain").is_some());
+}
+
+#[tokio::test]
+async fn test_suspended_login_emits_audit_row() {
+    let harness = TestHarness::new().await;
+    let (user_id, email, pwd, _) = harness.create_user(UserRole::Customer, UserStatus::Suspended, 1).await;
+
+    let payload = json!({
+        "email": email,
+        "password": pwd,
+    });
+
+    let (status, body) = harness.send_request("POST", "/auth/login", None, Some(payload)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"]["code"], "account_suspended");
+
+    let row: (String, Value) = sqlx::query_as(
+        "SELECT event, metadata FROM audit_log WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1"
+    )
+    .bind(user_id.into_inner())
+    .fetch_one(&harness.state.db_pool)
+    .await
+    .unwrap();
+
+    assert_eq!(row.0, "auth.login.failed_suspended");
+    let meta_str = row.1.to_string();
+    assert!(!meta_str.contains("Password"), "Metadata must never contain plaintext password");
+    assert!(!meta_str.contains("argon2id"), "Metadata must never contain password hashes");
+    assert_eq!(row.1.get("status").and_then(|v| v.as_str()), Some("SUSPENDED"));
 }

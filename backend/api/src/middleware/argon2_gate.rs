@@ -56,8 +56,9 @@ impl Argon2Gate {
         };
 
         let result = tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            f()
+            let res = f();
+            drop(permit);
+            res
         })
         .await
         .map_err(GateError::JoinError);

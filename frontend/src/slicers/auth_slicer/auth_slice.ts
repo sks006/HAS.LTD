@@ -2,7 +2,12 @@ import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { apiFetch } from '@/shared/api/client';
 import { ENDPOINTS } from '@/shared/api/endpoints';
 import type { AuthUser } from '@/shared/types/contracts';
-import type { Role } from '@/shared/types/roles';
+import {
+  loginFetch,
+  normalizeBackendUser,
+  registerFetch,
+  type RegisterResponse,
+} from './auth_fetch';
 
 // Types for payloads
 export interface LoginPayload {
@@ -25,38 +30,33 @@ export const loginUser = createAsyncThunk<AuthResponse, LoginPayload>(
   'auth/login',
   async ({ email, password }, { rejectWithValue }) => {
     try {
-      return await apiFetch<AuthResponse>(ENDPOINTS.LOGIN, {
-        method: 'POST',
-        body: { email, password },
-      });
+      const response = await loginFetch(email, password || '');
+      if (!response.access_token || !response.user) {
+        throw new Error('Additional MFA verification is required. Use the sign-in form to continue.');
+      }
+      return { user: normalizeBackendUser(response.user), token: response.access_token };
     } catch (error) {
       return rejectWithValue(error);
     }
   }
 );
 
-export const registerUser = createAsyncThunk<AuthResponse, RegisterPayload>(
+export const registerUser = createAsyncThunk<RegisterResponse, RegisterPayload>(
   'auth/register',
   async ({ email, password }, { rejectWithValue }) => {
     try {
-      return await apiFetch<AuthResponse>(ENDPOINTS.REGISTER, {
-        method: 'POST',
-        body: { email, password },
-      });
+      return await registerFetch(email, password || '');
     } catch (error) {
       return rejectWithValue(error);
     }
   }
 );
 
-export const refreshToken = createAsyncThunk<{ token: string }, string>(
+export const refreshToken = createAsyncThunk<{ access_token: string }, void>(
   'auth/refreshToken',
-  async (token, { rejectWithValue }) => {
+  async (_, { rejectWithValue }) => {
     try {
-      return await apiFetch<{ token: string }>(ENDPOINTS.REFRESH, {
-        method: 'POST',
-        token,
-      });
+      return await apiFetch<{ access_token: string }>(ENDPOINTS.REFRESH, { method: 'POST' });
     } catch (error) {
       return rejectWithValue(error);
     }
@@ -67,7 +67,7 @@ export const logoutUser = createAsyncThunk<void, string>(
   'auth/logout',
   async (token, { rejectWithValue }) => {
     try {
-      await apiFetch<void>(ENDPOINTS.LOGOUT, {
+      await apiFetch<{ success: boolean }>(ENDPOINTS.LOGOUT, {
         method: 'POST',
         token,
       });
@@ -86,7 +86,7 @@ export interface AuthState {
 }
 
 const initialState: AuthState = {
-  user: { id: 'demo-admin', email: 'admin@lamina.sa', role: 'SUPER_ADMIN' },
+  user: null,
   token: null,
   loading: false,
   error: null,
@@ -102,13 +102,6 @@ const authSlice = createSlice({
     ) => {
       state.user = action.payload.user;
       state.token = action.payload.token ?? null;
-    },
-    setRole: (state, action: PayloadAction<Role>) => {
-      if (state.user) {
-        state.user.role = action.payload;
-      } else {
-        state.user = { id: 'demo-user', email: 'user@lamina.sa', role: action.payload };
-      }
     },
     logout: (state) => {
       state.user = null;
@@ -138,10 +131,9 @@ const authSlice = createSlice({
         state.loading = true;
         state.error = null;
       })
-      .addCase(registerUser.fulfilled, (state, action) => {
+      .addCase(registerUser.fulfilled, (state) => {
         state.loading = false;
-        state.user = action.payload.user;
-        state.token = action.payload.token;
+        state.error = null;
       })
       .addCase(registerUser.rejected, (state, action) => {
         state.loading = false;
@@ -149,7 +141,7 @@ const authSlice = createSlice({
       })
       // Refresh
       .addCase(refreshToken.fulfilled, (state, action) => {
-        state.token = action.payload.token;
+        state.token = action.payload.access_token;
       })
       // Logout
       .addCase(logoutUser.fulfilled, (state) => {
@@ -159,6 +151,6 @@ const authSlice = createSlice({
   },
 });
 
-export const { setAuth, setRole, logout } = authSlice.actions;
+export const { setAuth, logout } = authSlice.actions;
 
 export default authSlice.reducer;

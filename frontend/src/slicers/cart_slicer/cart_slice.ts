@@ -1,7 +1,7 @@
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { apiFetch } from '@/shared/api/client';
 import { ENDPOINTS } from '@/shared/api/endpoints';
-import type { OrderDto } from '@/shared/types/contracts';
+import type { CheckoutPayload, CheckoutResponse } from './cart_fetch';
 
 // Types for payloads & items
 export interface CartItem {
@@ -12,11 +12,11 @@ export interface CartItem {
 }
 
 export interface SyncCartPayload {
-  items: { productId: string; quantity: number }[];
+  items: { variant_id: string; quantity_change: number }[];
 }
 
 export interface SubmitOrderPayload {
-  items: { productId: string; quantity: number }[];
+  checkout: CheckoutPayload;
   idempotencyKey: string;
 }
 
@@ -27,7 +27,7 @@ export const syncCart = createAsyncThunk<void, SyncCartPayload>(
     try {
       await apiFetch<void>(ENDPOINTS.CART_SYNC, {
         method: 'POST',
-        body: { items },
+        body: items,
       });
     } catch (error) {
       return rejectWithValue(error);
@@ -35,13 +35,14 @@ export const syncCart = createAsyncThunk<void, SyncCartPayload>(
   }
 );
 
-export const submitOrder = createAsyncThunk<OrderDto, SubmitOrderPayload>(
+export const submitOrder = createAsyncThunk<CheckoutResponse, SubmitOrderPayload>(
   'cart/submitOrder',
-  async ({ items, idempotencyKey }, { rejectWithValue }) => {
+  async ({ checkout, idempotencyKey }, { rejectWithValue }) => {
     try {
-      return await apiFetch<OrderDto>(ENDPOINTS.ORDERS, {
+      return await apiFetch<CheckoutResponse>(ENDPOINTS.CHECKOUT, {
         method: 'POST',
-        body: { items, idempotency_key: idempotencyKey },
+        headers: { 'x-idempotency-key': idempotencyKey },
+        body: checkout,
       });
     } catch (error) {
       return rejectWithValue(error);
@@ -52,7 +53,7 @@ export const submitOrder = createAsyncThunk<OrderDto, SubmitOrderPayload>(
 // Slice state
 export interface CartState {
   items: CartItem[];
-  lastOrder: OrderDto | null;
+  lastOrder: CheckoutResponse | null;
   loading: boolean;
   error: string | null;
 }

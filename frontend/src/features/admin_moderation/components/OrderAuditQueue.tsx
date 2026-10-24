@@ -1,7 +1,17 @@
 import React from 'react';
-import Table from '@/shared/ui/Table';
-import Button from '@/shared/ui/Button';
+import { Card, CardHeader, CardTitle, CardContent } from '@/shared/ui/card';
+import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/shared/ui/table';
 import { OrderDto } from '@/shared/types/contracts';
+import { ShieldCheck, Check, X, Clock } from 'lucide-react';
 
 interface OrderQueueProps {
   orders?: OrderDto[];
@@ -10,46 +20,81 @@ interface OrderQueueProps {
 
 export const OrderAuditQueue: React.FC<OrderQueueProps> = ({ orders = [], onReviewOrder }) => {
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-bold text-navy">Pending Order Audit Queue</h3>
-        <span className="text-xs bg-amber-50 border border-amber-200 text-amber-800 font-mono px-3 py-1 rounded-full font-semibold">
-          Moderator Audit Mode
-        </span>
-      </div>
+    <Card className="border-neutral-200/80 shadow-2xs bg-white">
+      <CardHeader className="pb-3 border-b border-neutral-100 flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="font-serif text-base font-bold text-neutral-900 flex items-center space-x-2">
+            <ShieldCheck size={18} className="text-amber-800" />
+            <span>Pending Order Audit Queue</span>
+          </CardTitle>
+          <p className="text-xs text-neutral-500 mt-0.5">
+            Moderator inspection and manual transaction validation queue
+          </p>
+        </div>
+        <Badge variant="outline" className="border-amber-300 text-amber-800 font-mono text-[10px]">
+          Live Review Mode
+        </Badge>
+      </CardHeader>
 
-      <Table headers={['Order ID', 'Status', 'Total', 'Action']}>
-        {orders.length === 0 ? (
-          <tr>
-            <td colSpan={4} className="px-6 py-8 text-center text-slateblue text-sm">
-              No orders pending moderation audit.
-            </td>
-          </tr>
-        ) : (
-          orders.map((o) => (
-            <tr key={o.id} className="hover:bg-cream/40 border-b border-lightgray transition-colors">
-              <td className="px-6 py-4 font-mono text-xs text-navy">{o.id}</td>
-              <td className="px-6 py-4">
-                <span className="px-2.5 py-1 bg-amber-50 text-amber-800 text-xs font-bold rounded">
-                  {o.status}
-                </span>
-              </td>
-              <td className="px-6 py-4 text-navy font-semibold">
-                {o.currency} {o.total}
-              </td>
-              <td className="px-6 py-4 flex space-x-2">
-                <Button size="sm" variant="primary" onClick={() => onReviewOrder?.(o.id, 'APPROVE')}>
-                  Approve
-                </Button>
-                <Button size="sm" variant="danger" onClick={() => onReviewOrder?.(o.id, 'REJECT')}>
-                  Reject
-                </Button>
-              </td>
-            </tr>
-          ))
-        )}
-      </Table>
-    </div>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader className="bg-neutral-50/70">
+            <TableRow>
+              <TableHead className="text-xs font-semibold text-neutral-500">Order ID</TableHead>
+              <TableHead className="text-xs font-semibold text-neutral-500">Lifecycle State</TableHead>
+              <TableHead className="text-xs font-semibold text-neutral-500">Settlement Total</TableHead>
+              <TableHead className="text-xs font-semibold text-neutral-500 text-right">Moderator Review</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {orders.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4} className="h-32 text-center text-xs text-neutral-400">
+                  <Clock size={20} className="mx-auto mb-1 text-neutral-300" />
+                  No orders currently queued for manual audit review.
+                </TableCell>
+              </TableRow>
+            ) : (
+              orders.map((o) => (
+                <TableRow key={o.id} className="hover:bg-neutral-50/80 transition-colors">
+                  <TableCell className="font-mono text-xs font-semibold text-neutral-800">
+                    {o.id}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="secondary" className="font-mono text-[10px] uppercase">
+                      {o.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs font-bold text-neutral-900">
+                    {o.currency} {o.total}
+                  </TableCell>
+                  <TableCell className="text-right space-x-2">
+                    <Button
+                      size="sm"
+                      variant="luxury"
+                      className="h-7 text-xs font-mono uppercase"
+                      onClick={() => onReviewOrder?.(o.id, 'APPROVE')}
+                    >
+                      <Check size={12} className="mr-1" />
+                      <span>Approve</span>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-7 text-xs font-mono uppercase"
+                      onClick={() => onReviewOrder?.(o.id, 'REJECT')}
+                    >
+                      <X size={12} className="mr-1" />
+                      <span>Reject</span>
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   );
 };
 

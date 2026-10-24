@@ -2,6 +2,8 @@
 
 HAS.LTD is a production-grade full-stack combining a **Rust** backend with a **React/Vite** frontend. It leverages clean architectural principles, domain-driven design (DDD), and transaction-safe database patterns (such as Optimistic Concurrency Control and Idempotent execution).
 
+> 📌 **Single Source of Truth:** For the end-to-end production feature checklist, priority classifications (P0: MVP, P1: Running Production, P2: Future Implementation), and verified completion status, see [PRODUCTION_FEATURES.md](PRODUCTION_FEATURES.md).
+
 ---
 
 ## 🏗️ Architectural Blueprint
@@ -30,6 +32,7 @@ graph TD
 ├── Makefile                            # Build automation, migration runners, and security audits
 ├── docker-compose.yml                  # Local network isolation for PostgreSQL, Redis, and LocalStack
 ├── README.md                           # System invariants and deployment specifications
+├── PRODUCTION_FEATURES.md              # Absolute Single Source of Truth (SSOT) feature checklist (P0, P1, P2)
 │
 ├── backend/                            # 🚀 Axum Backend Workspace
 │   ├── api/                            # INGRESS & TRANSPORT LAYER (Axum HTTP)
@@ -241,6 +244,12 @@ From the `frontend/` directory:
 npm run dev
 ```
 The client dashboard will be available at `http://localhost:5173`.
+The Vite development proxy forwards `/api/*` requests to `http://localhost:3000`.
+Set `VITE_API_PROXY_TARGET` before starting Vite if the API is hosted elsewhere.
+For a deployed frontend, set `VITE_API_URL` to the backend API base URL at build time,
+and set the backend's `FRONTEND_ORIGIN` to the deployed frontend origin for
+credentialed refresh-cookie requests. Use frontend and API hostnames under the same
+site so the backend's `SameSite=Lax` refresh cookie can be sent.
 
 #### Backend API Server
 From the repository root:
@@ -263,11 +272,16 @@ The Axum server boots up at `http://localhost:3000`.
 ./scripts/dev.sh backend
 ```
 
-#### Start frontend and backend with docker
+#### Start frontend and backend together
 
 ```bash
 ./scripts/dev.sh all
 ```
+
+The frontend uses the backend's email OTP registration, MFA sign-in, cookie-based
+session refresh, product catalog, protected checkout, and order endpoints. Checkout
+requires a verified customer account; the backend currently creates orders but does
+not process payment.
 
 
 ## 💻 Useful Commands

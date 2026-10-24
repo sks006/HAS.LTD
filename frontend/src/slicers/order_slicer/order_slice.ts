@@ -45,20 +45,6 @@ export const fetchOrders = createAsyncThunk<OrderRecord[]>(
   }
 );
 
-export const createNewOrder = createAsyncThunk<OrderRecord, AddOrderPayload>(
-  'orders/createNewOrder',
-  async (payload, { rejectWithValue }) => {
-    try {
-      return await apiFetch<OrderRecord>(ENDPOINTS.ORDERS, {
-        method: 'POST',
-        body: payload,
-      });
-    } catch (error) {
-      return rejectWithValue(error);
-    }
-  }
-);
-
 export const updateOrderStatusThunk = createAsyncThunk<
   { id: string; status: OrderState },
   { id: string; status: OrderState; version?: number }
@@ -192,9 +178,6 @@ const ordersSlice = createSlice({
       .addCase(fetchOrders.rejected, (state, action) => {
         state.loading = false;
         // Keep initial mock orders on API failure
-      })
-      .addCase(createNewOrder.fulfilled, (state, action) => {
-        state.orders.unshift(action.payload);
       })
       .addCase(updateOrderStatusThunk.fulfilled, (state, action) => {
         const index = state.orders.findIndex((o) => o.id === action.payload.id);

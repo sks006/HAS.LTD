@@ -20,6 +20,7 @@ pub struct Claims {
     pub iat: i64,
     pub nbf: i64,
     pub jti: Uuid,
+    pub sid: Uuid,
     pub auth_version: i64,
     pub role: String,
     pub scope: String,
@@ -175,21 +176,7 @@ impl JwtKeys {
 
         // 5. Decode and cryptographically verify signature and claims
         let token_data = jsonwebtoken::decode::<Claims>(token, verifier, &validation)
-            .map_err(|e| match e.kind() {
-                jsonwebtoken::errors::ErrorKind::ExpiredSignature => {
-                    CryptoError::InvalidClaims("token expired".to_string())
-                }
-                jsonwebtoken::errors::ErrorKind::ImmatureSignature => {
-                    CryptoError::InvalidClaims("token not yet valid (nbf)".to_string())
-                }
-                jsonwebtoken::errors::ErrorKind::InvalidIssuer => {
-                    CryptoError::InvalidClaims("invalid issuer".to_string())
-                }
-                jsonwebtoken::errors::ErrorKind::InvalidAudience => {
-                    CryptoError::InvalidClaims("invalid audience".to_string())
-                }
-                _ => CryptoError::JwtError(e.to_string()),
-            })?;
+            .map_err(CryptoError::Jwt)?;
 
         Ok(token_data.claims)
     }
@@ -319,6 +306,7 @@ GQIDAQAB\n\
             iat: now,
             nbf: now - 5,
             jti: Uuid::new_v4(),
+            sid: Uuid::new_v4(),
             auth_version: 1,
             role: "CUSTOMER".to_string(),
             scope: "access".to_string(),
@@ -353,7 +341,7 @@ GQIDAQAB\n\
         let res = keys.verify_access_token(&token);
 
         match res {
-            Err(CryptoError::InvalidClaims(msg)) => assert!(msg.contains("expired")),
+            Err(CryptoError::Jwt(e)) => assert_eq!(*e.kind(), jsonwebtoken::errors::ErrorKind::ExpiredSignature),
             other => panic!("Expected expired token error, got {:?}", other),
         }
     }
@@ -369,7 +357,7 @@ GQIDAQAB\n\
         let res = keys.verify_access_token(&token);
 
         match res {
-            Err(CryptoError::InvalidClaims(msg)) => assert!(msg.contains("issuer")),
+            Err(CryptoError::Jwt(e)) => assert_eq!(*e.kind(), jsonwebtoken::errors::ErrorKind::InvalidIssuer),
             other => panic!("Expected wrong issuer error, got {:?}", other),
         }
     }
@@ -385,7 +373,7 @@ GQIDAQAB\n\
         let res = keys.verify_access_token(&token);
 
         match res {
-            Err(CryptoError::InvalidClaims(msg)) => assert!(msg.contains("audience")),
+            Err(CryptoError::Jwt(e)) => assert_eq!(*e.kind(), jsonwebtoken::errors::ErrorKind::InvalidAudience),
             other => panic!("Expected wrong audience error, got {:?}", other),
         }
     }

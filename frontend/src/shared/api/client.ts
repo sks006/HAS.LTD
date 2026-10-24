@@ -1,10 +1,11 @@
 import { ENDPOINTS } from './endpoints';
 
-const API_BASE =
-  (typeof import.meta !== 'undefined' &&
-    ((import.meta as any).env?.VITE_API_URL || (import.meta as any).env?.NEXT_PUBLIC_API_URL)) ||
-  (typeof process !== 'undefined' && process.env?.API_URL) ||
-  'http://localhost:3000';
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
+let apiToken: string | null = null;
+
+export function setApiToken(token: string | null): void {
+  apiToken = token;
+}
 
 export class ApiError extends Error {
   constructor(
@@ -29,11 +30,13 @@ export type RequestOptions = {
 };
 
 function buildUrl(path: string, params?: Record<string, string | number | boolean>): string {
-  const cleanBase = API_BASE.endsWith('/') ? API_BASE : `${API_BASE}/`;
   const cleanPath = path.startsWith('/') ? path.slice(1) : path;
   const url = path.startsWith('http://') || path.startsWith('https://')
     ? new URL(path)
-    : new URL(cleanPath, cleanBase);
+    : new URL(
+        cleanPath,
+        new URL(`${API_BASE.replace(/\/+$/, '')}/`, window.location.origin)
+      );
 
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
@@ -49,7 +52,7 @@ export async function apiFetch<T>(path: string, opts: RequestOptions = {}): Prom
   const {
     method = 'GET',
     body,
-    token,
+    token: requestToken,
     params,
     headers: customHeaders,
     timeout = 15000,
@@ -57,6 +60,7 @@ export async function apiFetch<T>(path: string, opts: RequestOptions = {}): Prom
 
   const url = buildUrl(path, params);
   const headers: Record<string, string> = { ...customHeaders };
+  const token = requestToken === undefined ? apiToken : requestToken;
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   let requestBody: BodyInit | undefined;
@@ -76,6 +80,7 @@ export async function apiFetch<T>(path: string, opts: RequestOptions = {}): Prom
       headers,
       body: requestBody,
       signal: controller.signal,
+      credentials: 'include',
     });
 
     if (!res.ok) {

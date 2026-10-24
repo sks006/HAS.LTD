@@ -33,6 +33,9 @@ impl Default for Argon2Params {
 pub struct CryptoConfig {
     pub jwt_dir: PathBuf,
     pub totp_key_path: PathBuf,
+    pub email_pepper_path: PathBuf,
+    #[serde(skip)]
+    pub email_pepper: [u8; 32],
     pub argon2_params: Argon2Params,
 }
 
@@ -41,6 +44,8 @@ impl Default for CryptoConfig {
         Self {
             jwt_dir: PathBuf::from(".secrets/jwt"),
             totp_key_path: PathBuf::from(".secrets/totp.key"),
+            email_pepper_path: PathBuf::from(".secrets/email.pepper"),
+            email_pepper: [0u8; 32],
             argon2_params: Argon2Params::default(),
         }
     }
@@ -57,13 +62,46 @@ impl CryptoConfig {
     }
 
     /// Loads and strictly validates configuration. Fails loudly at startup if
-    /// `jwt_dir` is missing/empty or `totp_key_path` is missing/not 32 bytes.
+    /// `jwt_dir` is missing/empty, `totp_key_path` is missing/not 32 bytes,
+    /// or `email_pepper_path` is missing/not 32 bytes.
     pub fn load() -> Result<Self, CryptoError> {
-        let config: CryptoConfig = Self::figment()
+        let mut config: CryptoConfig = Self::figment()
             .extract()
             .map_err(|e| CryptoError::ConfigError(e.to_string()))?;
 
+        // Fallbacks for tests / nested execution if relative paths do not exist in current dir
+        if !config.jwt_dir.exists() {
+            let alt = PathBuf::from("../../.secrets/jwt");
+            if alt.exists() {
+                config.jwt_dir = alt;
+            }
+        }
+        if !config.totp_key_path.exists() {
+            let alt = PathBuf::from("../../.secrets/totp.key");
+            if alt.exists() {
+                config.totp_key_path = alt;
+            }
+        }
+        if !config.email_pepper_path.exists() {
+            let alt = PathBuf::from("../../.secrets/email.pepper");
+            if alt.exists() {
+                config.email_pepper_path = alt;
+            }
+        }
+
         config.validate()?;
+
+        let pepper_bytes = std::fs::read(&config.email_pepper_path)
+            .map_err(|e| CryptoError::IoError(e))?;
+        if pepper_bytes.len() != 32 {
+            return Err(CryptoError::ConfigError(format!(
+                "email_pepper_path must be exactly 32 bytes, found {} bytes: {}",
+                pepper_bytes.len(),
+                config.email_pepper_path.display()
+            )));
+        }
+        config.email_pepper.copy_from_slice(&pepper_bytes);
+
         Ok(config)
     }
 
@@ -118,6 +156,23 @@ impl CryptoConfig {
             )));
         }
 
+        // 3. email_pepper_path must exist and be exactly 32 bytes
+        if !self.email_pepper_path.exists() {
+            return Err(CryptoError::ConfigError(format!(
+                "email_pepper_path does not exist: {}",
+                self.email_pepper_path.display()
+            )));
+        }
+        let pepper_meta = std::fs::metadata(&self.email_pepper_path)
+            .map_err(|e| CryptoError::IoError(e))?;
+        if pepper_meta.len() != 32 {
+            return Err(CryptoError::ConfigError(format!(
+                "email_pepper_path must be exactly 32 bytes, found {} bytes: {}",
+                pepper_meta.len(),
+                self.email_pepper_path.display()
+            )));
+        }
+
         Ok(())
     }
 }
@@ -129,7 +184,6 @@ mod tests {
 
     #[test]
     fn test_gitignore_contains_secrets_dir_before_init_secrets_runs() {
-        // Find .gitignore in repo root (search upwards from current dir or cargo manifest dir)
         let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let root_gitignore = manifest_dir.join("../../.gitignore");
 
@@ -148,10 +202,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let key_path = dir.path().join("totp.key");
         std::fs::write(&key_path, [0u8; 32]).unwrap();
+        let pepper_path = dir.path().join("email.pepper");
+        std::fs::write(&pepper_path, [0u8; 32]).unwrap();
 
         let config = CryptoConfig {
             jwt_dir: dir.path().join("non_existent_jwt_dir"),
             totp_key_path: key_path,
+            email_pepper_path: pepper_path,
+            email_pepper: [0u8; 32],
             argon2_params: Argon2Params::default(),
         };
 
@@ -170,10 +228,14 @@ mod tests {
 
         let key_path = dir.path().join("totp.key");
         std::fs::write(&key_path, [0u8; 32]).unwrap();
+        let pepper_path = dir.path().join("email.pepper");
+        std::fs::write(&pepper_path, [0u8; 32]).unwrap();
 
         let config = CryptoConfig {
             jwt_dir: empty_jwt_dir,
             totp_key_path: key_path,
+            email_pepper_path: pepper_path,
+            email_pepper: [0u8; 32],
             argon2_params: Argon2Params::default(),
         };
 
@@ -192,20 +254,78 @@ mod tests {
         let mut pem = std::fs::File::create(jwt_dir.join("1.pem")).unwrap();
         pem.write_all(b"fake pem").unwrap();
 
-        // 16 bytes instead of 32 bytes
         let short_key_path = dir.path().join("totp.key");
         std::fs::write(&short_key_path, [0u8; 16]).unwrap();
+        let pepper_path = dir.path().join("email.pepper");
+        std::fs::write(&pepper_path, [0u8; 32]).unwrap();
 
         let config = CryptoConfig {
             jwt_dir,
             totp_key_path: short_key_path,
+            email_pepper_path: pepper_path,
+            email_pepper: [0u8; 32],
             argon2_params: Argon2Params::default(),
         };
 
         let res = config.validate();
         match res {
-            Err(CryptoError::ConfigError(msg)) => assert!(msg.contains("must be exactly 32 bytes")),
+            Err(CryptoError::ConfigError(msg)) => assert!(msg.contains("totp_key_path must be exactly 32 bytes")),
             other => panic!("Expected ConfigError for invalid totp.key size, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_loader_fails_if_email_pepper_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let jwt_dir = dir.path().join("jwt");
+        std::fs::create_dir(&jwt_dir).unwrap();
+        let mut pem = std::fs::File::create(jwt_dir.join("1.pem")).unwrap();
+        pem.write_all(b"fake pem").unwrap();
+
+        let key_path = dir.path().join("totp.key");
+        std::fs::write(&key_path, [0u8; 32]).unwrap();
+        let pepper_path = dir.path().join("non_existent_email.pepper");
+
+        let config = CryptoConfig {
+            jwt_dir,
+            totp_key_path: key_path,
+            email_pepper_path: pepper_path,
+            email_pepper: [0u8; 32],
+            argon2_params: Argon2Params::default(),
+        };
+
+        let res = config.validate();
+        match res {
+            Err(CryptoError::ConfigError(msg)) => assert!(msg.contains("email_pepper_path does not exist")),
+            other => panic!("Expected ConfigError for missing email.pepper, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_loader_fails_if_email_pepper_not_32_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let jwt_dir = dir.path().join("jwt");
+        std::fs::create_dir(&jwt_dir).unwrap();
+        let mut pem = std::fs::File::create(jwt_dir.join("1.pem")).unwrap();
+        pem.write_all(b"fake pem").unwrap();
+
+        let key_path = dir.path().join("totp.key");
+        std::fs::write(&key_path, [0u8; 32]).unwrap();
+        let pepper_path = dir.path().join("email.pepper");
+        std::fs::write(&pepper_path, [0u8; 16]).unwrap();
+
+        let config = CryptoConfig {
+            jwt_dir,
+            totp_key_path: key_path,
+            email_pepper_path: pepper_path,
+            email_pepper: [0u8; 32],
+            argon2_params: Argon2Params::default(),
+        };
+
+        let res = config.validate();
+        match res {
+            Err(CryptoError::ConfigError(msg)) => assert!(msg.contains("email_pepper_path must be exactly 32 bytes")),
+            other => panic!("Expected ConfigError for invalid email.pepper size, got {:?}", other),
         }
     }
 
@@ -219,10 +339,14 @@ mod tests {
 
         let key_path = dir.path().join("totp.key");
         std::fs::write(&key_path, [0u8; 32]).unwrap();
+        let pepper_path = dir.path().join("email.pepper");
+        std::fs::write(&pepper_path, [0u8; 32]).unwrap();
 
         let config = CryptoConfig {
             jwt_dir,
             totp_key_path: key_path,
+            email_pepper_path: pepper_path,
+            email_pepper: [0u8; 32],
             argon2_params: Argon2Params::default(),
         };
 

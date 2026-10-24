@@ -34,7 +34,7 @@ services:
     # This punches a hole through the isolated Docker bridge network, mapping your physical host's 
     # port 5432 directly to the container's port 5432, allowing `sqlx` to establish socket connections.
     ports:
-      - "5432:5432"
+      - "5442:5432"
       
     # The Physical I/O Survival Boundary. 
     # Without this mapping, Postgres writes its Write-Ahead Log (WAL) to the container's OverlayFS. 
@@ -59,7 +59,7 @@ services:
     # TCP mapping for the single-threaded Redis event loop. 
     # Your Axum extractors will bombard this port to verify JWT blacklists and Idempotency locks.
     ports:
-      - "6379:6379"
+      - "6399:6379"
       
     # The Snapshot Persistence. 
     # Redis holds your system's network reliability state in RAM. By mounting this volume, 

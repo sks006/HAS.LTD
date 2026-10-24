@@ -1,7 +1,10 @@
 import { createAsyncThunk, createSlice, PayloadAction } from '@reduxjs/toolkit';
-import { apiFetch } from '@/shared/api/client';
-import { ENDPOINTS } from '@/shared/api/endpoints';
 import type { InventoryItemDto } from '@/shared/types/contracts';
+import {
+  deleteInventoryProduct as deleteInventoryProductFetch,
+  fetchInventory as fetchInventoryFetch,
+  updateProductInventory as updateProductInventoryFetch,
+} from './inventory_fetch';
 
 // Types for payloads
 export interface UpdateInventoryPayload {
@@ -14,7 +17,7 @@ export const fetchInventory = createAsyncThunk<InventoryItemDto[]>(
   'inventory/fetch',
   async (_, { rejectWithValue }) => {
     try {
-      return await apiFetch<InventoryItemDto[]>(ENDPOINTS.INVENTORY);
+      return await fetchInventoryFetch();
     } catch (error) {
       return rejectWithValue(error);
     }
@@ -25,10 +28,7 @@ export const updateProductInventory = createAsyncThunk<InventoryItemDto, UpdateI
   'inventory/updateProduct',
   async ({ id, patch }, { rejectWithValue }) => {
     try {
-      return await apiFetch<InventoryItemDto>(`${ENDPOINTS.ADMIN_INVENTORY}/${id}`, {
-        method: 'PUT',
-        body: patch,
-      });
+      return await updateProductInventoryFetch(id, patch);
     } catch (error) {
       return rejectWithValue(error);
     }
@@ -39,9 +39,7 @@ export const deleteInventoryProduct = createAsyncThunk<void, string>(
   'inventory/deleteProduct',
   async (id, { rejectWithValue }) => {
     try {
-      await apiFetch<void>(`${ENDPOINTS.ADMIN_INVENTORY}/${id}`, {
-        method: 'DELETE',
-      });
+      await deleteInventoryProductFetch(id);
     } catch (error) {
       return rejectWithValue(error);
     }

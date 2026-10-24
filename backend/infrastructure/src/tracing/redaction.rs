@@ -28,6 +28,8 @@ pub const SENSITIVE_FIELDS: &[&str] = &[
     "cookie",
     "set-cookie",
     "x-api-key",
+    "email_pepper",
+    "totp_key",
 ];
 
 /// Checks whether a tracing field name matches any known sensitive credentials identifier.

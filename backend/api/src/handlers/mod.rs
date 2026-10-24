@@ -2,6 +2,8 @@ pub mod catalog;
 pub mod checkout;
 pub mod order;
 pub mod auth;
+pub mod session;
 pub mod cart;
 pub mod admin;
 pub mod webhooks;
+pub mod mfa;

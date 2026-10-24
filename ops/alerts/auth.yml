@@ -1,0 +1,92 @@
+groups:
+  - name: auth
+    rules:
+      - alert: AuthRefreshReplayDetected
+        expr: increase(auth_refresh_replay_detected_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: page
+        annotations:
+          summary: "Refresh token replay detected"
+          description: "Refresh token replay detected (value: {{ $value }}). Token family and sessions have been revoked."
+          runbook_url: "docs/runbooks/suspected-account-breach.md"
+
+      - alert: AuthMiddlewareInternalErrorRate
+        expr: rate(auth_middleware_rejection_total{reason="internal_error"}[5m]) > 0.01 * rate(auth_middleware_requests_total[5m])
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Auth middleware internal error rate exceeds 1%"
+          description: "Internal errors in auth middleware exceed 1% of total requests over 5m (value: {{ $value }})."
+          runbook_url: "docs/runbooks/postgres-failover.md"
+
+      - alert: AuthHighInvalidTokenRate
+        expr: rate(auth_middleware_rejection_total{reason="invalid_token"}[5m]) > 100 * (rate(auth_middleware_rejection_total{reason="invalid_token"}[1h] offset 5m) + 0.01)
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Spike in invalid token rejections"
+          description: "Token rejection rate for invalid_token is >100x baseline (value: {{ $value }}). Potential key mismatch."
+          runbook_url: "docs/runbooks/signing-key-rotation.md"
+
+      - alert: AuthHighLoginFailureRate
+        expr: rate(auth_login_failures_total[5m]) > 5 * (rate(auth_login_failures_total[1h] offset 5m) + 0.1)
+        for: 15m
+        labels:
+          severity: page
+        annotations:
+          summary: "Login failure rate is 5x above baseline"
+          description: "Sustained login failure spike over 15 minutes (value: {{ $value }}). Potential credential stuffing attack."
+          runbook_url: "docs/runbooks/suspected-account-breach.md"
+
+      - alert: AuthHighMfaFailureRate
+        expr: rate(auth_mfa_failures_total[5m]) > 5 * (rate(auth_mfa_failures_total[1h] offset 5m) + 0.1)
+        for: 15m
+        labels:
+          severity: page
+        annotations:
+          summary: "MFA failure rate is 5x above baseline"
+          description: "Sustained MFA failure spike over 15 minutes (value: {{ $value }}). Potential MFA bypass or brute-force attack."
+          runbook_url: "docs/runbooks/suspected-account-breach.md"
+
+      - alert: AuthArgon2QueueTimeouts
+        expr: rate(auth_argon2_queue_timeout_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Argon2 gate concurrency queue timeouts"
+          description: "Password hashing requests are timing out waiting for Argon2 semaphore (value: {{ $value }})."
+          runbook_url: "docs/runbooks/redis-outage.md"
+
+      - alert: AuthRecoveryCodeUsed
+        expr: increase(auth_audit_events_total{event="auth.mfa.recovery_used"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "MFA backup recovery code utilized"
+          description: "A single-use MFA backup recovery code was consumed (value: {{ $value }})."
+          runbook_url: "docs/runbooks/suspected-account-breach.md"
+
+      - alert: AuthEmailDispatchFailures
+        expr: increase(auth_email_dispatch_failure_total[15m]) > 10
+        for: 0m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Elevated email dispatch failures"
+          description: "More than 10 email dispatches failed within 15 minutes (value: {{ $value }})."
+          runbook_url: "docs/runbooks/redis-outage.md"
+
+      - alert: AuthMassLogoutSpike
+        expr: increase(auth_audit_events_total{event="auth.logout_all"}[15m]) > 50
+        for: 0m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "Spike in global logout-all operations"
+          description: "More than 50 logout-all invocations detected in 15m (value: {{ $value }})."
+          runbook_url: "docs/runbooks/mass-logout-incident.md"

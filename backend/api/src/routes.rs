@@ -1,7 +1,8 @@
 // backend/api/src/routes.rs
 
 use axum::{
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
+    http::HeaderValue,
     Json, Router,
 };
 use tower_http::cors::{Any, CorsLayer};
@@ -9,12 +10,17 @@ use tower_http::cors::{Any, CorsLayer};
 use crate::{
     handlers::{
         admin::{adjust_inventory, get_system_metrics},
-        auth::{login, me},
+        auth::{
+            login, me, password_change, password_forgot, password_reset, register,
+            register_resend_otp, register_verify_otp,
+        },
         cart::sync_cart,
         catalog::{create_product, delete_product, get_product, list_products, update_product},
         checkout::checkout,
         order::{delete_order, get_order, list_orders, update_order_status},
+        session::{delete_session, list_sessions, logout, logout_all, refresh},
         webhooks::handle_payment_webhook,
+        mfa::{login_recovery, login_totp, mfa_disable, mfa_enroll, mfa_verify},
     },
     metrics::METRICS,
     state::AppState,
@@ -33,10 +39,22 @@ async fn metrics_endpoint() -> impl axum::response::IntoResponse {
 }
 
 pub fn build_router(state: AppState) -> Router {
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = match std::env::var("FRONTEND_ORIGIN") {
+        Ok(origin) => {
+            let origin = HeaderValue::from_str(&origin)
+                .expect("FRONTEND_ORIGIN must be a valid HTTP origin");
+            CorsLayer::new()
+                .allow_origin(origin)
+                .allow_methods(Any)
+                .allow_headers(Any)
+                .allow_credentials(true)
+        }
+        Err(std::env::VarError::NotPresent) => CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any),
+        Err(error) => panic!("Unable to read FRONTEND_ORIGIN: {error}"),
+    };
 
     Router::new()
         // Public observability
@@ -63,9 +81,31 @@ pub fn build_router(state: AppState) -> Router {
         // Webhooks (HMAC verification)
         .route("/webhooks/payment", post(handle_payment_webhook))
 
-        // Minimal Phase 4 Auth routes
+        // Phase 4 Auth routes
         .route("/auth/login", post(login))
         .route("/auth/me", get(me))
+
+        // Phase 5 Session & Token Management routes
+        .route("/auth/refresh", post(refresh))
+        .route("/auth/logout", post(logout))
+        .route("/auth/logout-all", post(logout_all))
+        .route("/auth/sessions", get(list_sessions))
+        .route("/auth/sessions/{id}", delete(delete_session))
+
+        // Phase 6A Email Flow routes
+        .route("/auth/register", post(register))
+        .route("/auth/register/verify-otp", post(register_verify_otp))
+        .route("/auth/register/resend-otp", post(register_resend_otp))
+        .route("/auth/password/forgot", post(password_forgot))
+        .route("/auth/password/reset", post(password_reset))
+        .route("/auth/password/change", post(password_change))
+
+        // Phase 6B MFA (TOTP) routes
+        .route("/auth/mfa/totp/enroll", post(mfa_enroll))
+        .route("/auth/mfa/totp/verify", post(mfa_verify))
+        .route("/auth/mfa/totp/disable", post(mfa_disable))
+        .route("/auth/login/totp", post(login_totp))
+        .route("/auth/login/recovery", post(login_recovery))
 
         .layer(cors)
         .with_state(state)

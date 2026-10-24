@@ -7,3 +7,4 @@ pub mod storage;
 pub mod payment;
 pub mod config;
 pub mod tracing;
+pub mod email;

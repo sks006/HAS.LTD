@@ -18,6 +18,37 @@ import {
   removeMultipleOrders,
 } from '@/slicers/order_slicer/order_slice';
 import type { OrderRecord, OrderState } from '@/shared/types/contracts';
+import { useAuth } from '@/app/providers/AuthProvider';
+import { Button } from '@/shared/ui/button';
+import { Badge } from '@/shared/ui/badge';
+import { Input } from '@/shared/ui/input';
+import { Card, CardContent } from '@/shared/ui/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
+} from '@/shared/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/shared/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from '@/shared/ui/dropdown-menu';
+import { Alert, AlertDescription } from '@/shared/ui/alert';
+import { Label } from '@/shared/ui/label';
 import {
   Copy,
   CheckCircle2,
@@ -25,7 +56,6 @@ import {
   CheckCircle,
   RotateCcw,
   SlidersHorizontal,
-  Plus,
   ChevronDown,
   MoreVertical,
   ChevronLeft,
@@ -33,19 +63,18 @@ import {
   Search,
   Eye,
   Trash2,
-  X,
   Package,
   MapPin,
-  Clock,
   Shield,
   CreditCard,
-  DollarSign,
   User,
 } from 'lucide-react';
 
 export const OrdersPage: React.FC = () => {
+  const { role } = useAuth();
+  const isSuperAdmin = role === 'SUPER_ADMIN';
   const dispatch = useDispatch<AppDispatch>();
-  const { orders, activeFilter, searchQuery, sortBy } = useSelector(
+  const { orders, activeFilter, searchQuery, sortBy, loading, error } = useSelector(
     (state: RootState) => state.orders
   );
 
@@ -57,8 +86,7 @@ export const OrdersPage: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
-  
+
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [inspectOrder, setInspectOrder] = useState<OrderRecord | null>(null);
@@ -136,6 +164,30 @@ export const OrdersPage: React.FC = () => {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
+  const updateStatus = async (order: OrderRecord, backendStatus: OrderState, displayStatus: OrderState) => {
+    try {
+      await dispatch(updateOrderStatusThunk({
+        id: order.id,
+        status: backendStatus,
+        version: order.version,
+      })).unwrap();
+      dispatch(updateOrderStatus({ id: order.id, status: displayStatus }));
+      showToast(`Status updated to ${displayStatus}`);
+    } catch (requestError) {
+      showToast(`Unable to update order: ${requestError instanceof Error ? requestError.message : 'Backend request failed.'}`);
+    }
+  };
+
+  const deleteOrder = async (order: OrderRecord) => {
+    try {
+      await dispatch(deleteOrderThunk(order.id)).unwrap();
+      dispatch(removeOrder(order.id));
+      showToast(`Order ${order.order_number} deleted`);
+    } catch (requestError) {
+      showToast(`Unable to delete order: ${requestError instanceof Error ? requestError.message : 'Backend request failed.'}`);
+    }
+  };
+
   // Copy Order ID
   const handleCopyId = (orderNum: string, id: string) => {
     navigator.clipboard.writeText(orderNum);
@@ -160,11 +212,21 @@ export const OrdersPage: React.FC = () => {
   };
 
   // Bulk Delete
-  const handleBulkDelete = () => {
+  const handleBulkDelete = async () => {
     if (selectedIds.length === 0) return;
-    dispatch(removeMultipleOrders(selectedIds));
-    showToast(`Successfully removed ${selectedIds.length} orders.`);
+    const ids = [...selectedIds];
+    const results = await Promise.allSettled(
+      ids.map((id) => dispatch(deleteOrderThunk(id)).unwrap())
+    );
+    const deletedIds = ids.filter((_, index) => results[index].status === 'fulfilled');
+    const failedCount = results.length - deletedIds.length;
+    if (deletedIds.length > 0) dispatch(removeMultipleOrders(deletedIds));
     setSelectedIds([]);
+    showToast(
+      failedCount === 0
+        ? `Deleted ${deletedIds.length} orders.`
+        : `Deleted ${deletedIds.length}; ${failedCount} order(s) could not be deleted.`
+    );
   };
 
   // Add Order Submit
@@ -211,51 +273,57 @@ export const OrdersPage: React.FC = () => {
     switch (s) {
       case 'Pending':
         return (
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-[#f3e8ff] text-[#9333ea] border border-[#e9d5ff]">
+          <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200 text-[10px]">
             Pending
-          </span>
+          </Badge>
         );
       case 'Processing':
       case 'Paid':
       case 'Reserved':
         return (
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-[#fef3c7] text-[#d97706] border border-[#fde68a]">
+          <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-[10px]">
             {s === 'Paid' ? 'Paid' : s === 'Reserved' ? 'Reserved' : 'Processing'}
-          </span>
+          </Badge>
         );
       case 'Delivered':
       case 'Shipped':
         return (
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-[#dcfce7] text-[#16a34a] border border-[#bbf7d0]">
+          <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-200 text-[10px]">
             {s === 'Shipped' ? 'Shipped' : 'Delivered'}
-          </span>
+          </Badge>
         );
       case 'Returned':
         return (
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-[#fee2e2] text-[#dc2626] border border-[#fecaca]">
+          <Badge variant="destructive" className="text-[10px]">
             Returned
-          </span>
+          </Badge>
         );
       case 'Cancelled':
         return (
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+          <Badge variant="secondary" className="text-[10px]">
             Cancelled
-          </span>
+          </Badge>
         );
       default:
         return (
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-700 border border-gray-200">
+          <Badge variant="secondary" className="text-[10px]">
             {s}
-          </span>
+          </Badge>
         );
     }
   };
 
   return (
     <DashboardLayout activeTab="Orders">
+      {error && (
+        <Alert variant="destructive" className="mx-auto max-w-7xl">
+          <AlertDescription>Unable to load or update orders: {error}</AlertDescription>
+        </Alert>
+      )}
+
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-[#1e1b4b] text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-xl flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-2">
+        <div className="fixed bottom-6 right-6 z-50 bg-neutral-900 text-white text-xs font-semibold px-4 py-3 rounded-xl shadow-xl flex items-center space-x-2 animate-in fade-in slide-in-from-bottom-2">
           <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{toastMessage}</span>
         </div>
@@ -265,87 +333,81 @@ export const OrdersPage: React.FC = () => {
         {/* Top Header Bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center space-x-4">
-            <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
-              Orders
-            </h1>
+            <div className="flex items-center space-x-2">
+              <h1 className="text-2xl md:text-3xl font-extrabold text-neutral-900 tracking-tight font-serif">
+                Orders
+              </h1>
+              <Badge
+                variant={isSuperAdmin ? 'default' : 'secondary'}
+                className={`font-mono text-[10px] uppercase font-bold ${
+                  isSuperAdmin ? 'bg-amber-700 text-white' : 'bg-purple-100 text-purple-800 border-purple-200'
+                }`}
+              >
+                {role || 'Staff'}
+              </Badge>
+            </div>
 
-            {/* Filter Tabs matching Screenshot */}
-            <div className="flex items-center space-x-1.5 bg-white p-1 rounded-xl border border-gray-200/80 shadow-2xs">
-              {/* All Order Tab */}
-              <button
+            {/* Filter Tabs */}
+            <div className="flex items-center space-x-1.5 bg-white p-1 rounded-xl border border-neutral-200 shadow-2xs">
+              <Button
+                variant={activeFilter === 'All Order' ? 'secondary' : 'ghost'}
+                size="sm"
                 onClick={() => dispatch(setActiveOrderFilter('All Order'))}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  activeFilter === 'All Order'
-                    ? 'bg-gray-100 text-gray-900 shadow-2xs'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
+                className="h-8 text-xs font-semibold rounded-lg"
               >
-                <SlidersHorizontal className="w-3.5 h-3.5 text-gray-500" />
+                <SlidersHorizontal className="w-3.5 h-3.5 mr-1.5 text-neutral-500" />
                 <span>All Order</span>
-              </button>
+              </Button>
 
-              {/* Active Tab (Highlighted in soft purple box as in screenshot) */}
-              <button
+              <Button
+                variant={activeFilter === 'Active' ? 'secondary' : 'ghost'}
+                size="sm"
                 onClick={() => dispatch(setActiveOrderFilter('Active'))}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  activeFilter === 'Active'
-                    ? 'bg-[#ede9fe] text-[#7c3aed] border border-[#ddd6fe] shadow-2xs'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
+                className="h-8 text-xs font-semibold rounded-lg text-purple-700 bg-purple-50"
               >
-                <Filter className="w-3.5 h-3.5 text-[#7c3aed]" />
+                <Filter className="w-3.5 h-3.5 mr-1.5 text-purple-600" />
                 <span>Active</span>
-              </button>
+              </Button>
 
-              {/* Delivered Tab */}
-              <button
+              <Button
+                variant={activeFilter === 'Delivered' ? 'secondary' : 'ghost'}
+                size="sm"
                 onClick={() => dispatch(setActiveOrderFilter('Delivered'))}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  activeFilter === 'Delivered'
-                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
+                className="h-8 text-xs font-semibold rounded-lg text-emerald-700 bg-emerald-50"
               >
-                <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                <CheckCircle className="w-3.5 h-3.5 mr-1.5 text-emerald-600" />
                 <span>Delivered</span>
-              </button>
+              </Button>
 
-              {/* Returned Tab */}
-              <button
+              <Button
+                variant={activeFilter === 'Returned' ? 'secondary' : 'ghost'}
+                size="sm"
                 onClick={() => dispatch(setActiveOrderFilter('Returned'))}
-                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  activeFilter === 'Returned'
-                    ? 'bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
+                className="h-8 text-xs font-semibold rounded-lg text-rose-700 bg-rose-50"
               >
-                <RotateCcw className="w-3.5 h-3.5 text-rose-500" />
+                <RotateCcw className="w-3.5 h-3.5 mr-1.5 text-rose-500" />
                 <span>Returned</span>
-              </button>
+              </Button>
             </div>
           </div>
 
           {/* Right Header Controls */}
           <div className="flex items-center space-x-3">
-            {/* Bulk Actions if items selected */}
-            {selectedIds.length > 0 && (
-              <button
+            {isSuperAdmin && selectedIds.length > 0 && (
+              <Button
+                variant="destructive"
+                size="sm"
                 onClick={handleBulkDelete}
-                className="bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-2xs transition-all cursor-pointer"
+                className="rounded-xl h-9 text-xs font-bold"
               >
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-3.5 h-3.5 mr-1.5" />
                 <span>Delete ({selectedIds.length})</span>
-              </button>
+              </Button>
             )}
 
-            {/* + Add New Order Button */}
-            <button
-              onClick={() => setIsAddModalOpen(true)}
-              className="bg-[#7c3aed] hover:bg-[#6d28d9] text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 shadow-sm transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add New Order</span>
-            </button>
+            <span className="text-xs text-neutral-500 hidden sm:inline">
+              Orders created through customer checkout.
+            </span>
 
             {/* Sort Dropdown */}
             <div className="relative">
@@ -362,328 +424,292 @@ export const OrdersPage: React.FC = () => {
                     )
                   )
                 }
-                className="appearance-none bg-white border border-gray-200 text-gray-700 text-xs font-semibold px-3 py-2 pr-8 rounded-xl cursor-pointer shadow-2xs focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20"
+                className="appearance-none bg-white border border-neutral-200 text-neutral-700 text-xs font-semibold px-3 py-2 pr-8 rounded-xl cursor-pointer shadow-2xs focus:outline-none focus:ring-2 focus:ring-purple-500/20"
               >
                 <option value="Latest">Sort by Latest</option>
                 <option value="Amount (High-Low)">Amount: High to Low</option>
                 <option value="Amount (Low-High)">Amount: Low to High</option>
                 <option value="Customer Name">Customer Name</option>
               </select>
-              <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <ChevronDown className="w-3.5 h-3.5 text-neutral-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             </div>
           </div>
         </div>
 
         {/* Filter Search input bar */}
-        <div className="flex items-center justify-between bg-white p-3 rounded-2xl border border-gray-200/80 shadow-2xs">
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => dispatch(setOrderSearchQuery(e.target.value))}
-              placeholder="Search by Order ID, Customer Name, Product, or SKU..."
-              className="w-full pl-9 pr-4 py-1.5 text-xs bg-gray-50 border border-gray-200 rounded-xl text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20 focus:border-[#7c3aed]"
-            />
-          </div>
+        <Card className="rounded-2xl border-neutral-200 shadow-2xs bg-white">
+          <CardContent className="p-3 flex items-center justify-between">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => dispatch(setOrderSearchQuery(e.target.value))}
+                placeholder="Search by Order ID, Customer Name, Product, or SKU..."
+                className="pl-9 h-9 text-xs bg-neutral-50 border-neutral-200"
+              />
+            </div>
 
-          <div className="text-xs font-semibold text-gray-500">
-            Total Results: <span className="text-gray-900 font-bold">{sortedOrders.length}</span>
-          </div>
-        </div>
+            <div className="text-xs font-semibold text-neutral-500">
+              Total Results: <span className="text-neutral-900 font-bold">{sortedOrders.length}</span>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Orders Table Container */}
-        <div className="bg-white rounded-2xl border border-gray-200/80 shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50/50 text-[11px] uppercase font-bold text-gray-400 tracking-wider">
-                  <th className="py-3.5 px-4 w-10 text-center">
-                    <input
-                      type="checkbox"
-                      onChange={handleSelectAll}
-                      checked={
-                        paginatedOrders.length > 0 &&
-                        selectedIds.length === paginatedOrders.length
-                      }
-                      className="rounded border-gray-300 text-[#7c3aed] focus:ring-[#7c3aed] cursor-pointer"
-                    />
-                  </th>
-                  <th className="py-3.5 px-4">ORDER ID</th>
-                  <th className="py-3.5 px-4">CUSTOMER NAME</th>
-                  <th className="py-3.5 px-4">PRODUCT NAME</th>
-                  <th className="py-3.5 px-4">SKU</th>
-                  <th className="py-3.5 px-4">PAYMENT</th>
-                  <th className="py-3.5 px-4">AMOUNT</th>
-                  <th className="py-3.5 px-4">STATUS</th>
-                  <th className="py-3.5 px-4 text-right">ACTION</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 text-xs font-medium text-gray-700">
-                {paginatedOrders.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="py-12 text-center text-gray-400">
-                      <div className="flex flex-col items-center justify-center space-y-2">
-                        <Package className="w-8 h-8 text-gray-300" />
-                        <span className="font-semibold text-gray-500">No orders found</span>
-                        <span className="text-[11px] text-gray-400">
-                          Try adjusting your active filter or search term.
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedOrders.map((order) => {
-                    const isSelected = selectedIds.includes(order.id);
-                    const isMenuOpen = activeMenuId === order.id;
+        <Card className="rounded-2xl border-neutral-200 shadow-xs overflow-hidden bg-white">
+          <Table>
+            <TableHeader>
+              <TableRow className="border-b border-neutral-100 bg-neutral-50/50 text-[11px] uppercase font-bold text-neutral-400 tracking-wider">
+                <TableHead className="py-3.5 px-4 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    onChange={handleSelectAll}
+                    checked={
+                      paginatedOrders.length > 0 &&
+                      selectedIds.length === paginatedOrders.length
+                    }
+                    className="rounded border-neutral-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                  />
+                </TableHead>
+                <TableHead className="py-3.5 px-4">ORDER ID</TableHead>
+                <TableHead className="py-3.5 px-4">CUSTOMER NAME</TableHead>
+                <TableHead className="py-3.5 px-4">PRODUCT NAME</TableHead>
+                <TableHead className="py-3.5 px-4">SKU</TableHead>
+                <TableHead className="py-3.5 px-4">PAYMENT</TableHead>
+                <TableHead className="py-3.5 px-4">AMOUNT</TableHead>
+                <TableHead className="py-3.5 px-4">STATUS</TableHead>
+                <TableHead className="py-3.5 px-4 text-right">ACTION</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody className="text-xs font-medium text-neutral-700">
+              {paginatedOrders.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} className="py-12 text-center text-neutral-400">
+                    <div className="flex flex-col items-center justify-center space-y-2">
+                      <Package className="w-8 h-8 text-neutral-300" />
+                      <span className="font-semibold text-neutral-500">No orders found</span>
+                      <span className="text-[11px] text-neutral-400">
+                        Try adjusting your active filter or search term.
+                      </span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                paginatedOrders.map((order) => {
+                  const isSelected = selectedIds.includes(order.id);
 
-                    return (
-                      <tr
-                        key={order.id}
-                        className={`hover:bg-purple-50/30 transition-colors ${
-                          isSelected ? 'bg-purple-50/50' : ''
-                        }`}
-                      >
-                        {/* Checkbox */}
-                        <td className="py-3.5 px-4 text-center">
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => handleToggleRow(order.id)}
-                            className="rounded border-gray-300 text-[#7c3aed] focus:ring-[#7c3aed] cursor-pointer"
-                          />
-                        </td>
+                  return (
+                    <TableRow
+                      key={order.id}
+                      className={`hover:bg-purple-50/20 transition-colors ${
+                        isSelected ? 'bg-purple-50/50' : ''
+                      }`}
+                    >
+                      {/* Checkbox */}
+                      <TableCell className="py-3.5 px-4 text-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleRow(order.id)}
+                          className="rounded border-neutral-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                        />
+                      </TableCell>
 
-                        {/* Order ID with Copy Icon */}
-                        <td className="py-3.5 px-4">
-                          <div className="flex items-center space-x-1.5 text-gray-600 font-mono text-[11px]">
-                            <span>{order.order_number}</span>
-                            <button
-                              onClick={() => handleCopyId(order.order_number, order.id)}
-                              title="Copy Order ID"
-                              className="p-1 hover:bg-gray-100 rounded text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
-                            >
-                              {copiedId === order.id ? (
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                              ) : (
-                                <Copy className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                          </div>
-                        </td>
-
-                        {/* Customer Name & Phone */}
-                        <td className="py-3.5 px-4">
-                          <div className="font-bold text-gray-900">{order.customer_name}</div>
-                          {order.shipping_address?.phone && (
-                            <div className="text-[11px] text-gray-500 font-mono">
-                              📞 {order.shipping_address.phone}
-                            </div>
-                          )}
-                        </td>
-
-                        {/* Product Name */}
-                        <td className="py-3.5 px-4 text-gray-700">
-                          {order.product_name}
-                        </td>
-
-                        {/* SKU */}
-                        <td className="py-3.5 px-4 text-gray-500 font-mono text-[11px]">
-                          {order.sku}
-                        </td>
-
-                        {/* Payment */}
-                        <td className="py-3.5 px-4 text-gray-600">
-                          {order.payment_method}
-                        </td>
-
-                        {/* Amount */}
-                        <td className="py-3.5 px-4 font-bold text-gray-900">
-                          {order.currency}{order.amount.toFixed(2)}
-                        </td>
-
-                        {/* Status Badge */}
-                        <td className="py-3.5 px-4">
-                          {renderStatusBadge(order.status)}
-                        </td>
-
-                        {/* Actions Menu */}
-                        <td className="py-3.5 px-4 text-right relative">
+                      {/* Order ID with Copy Icon */}
+                      <TableCell className="py-3.5 px-4">
+                        <div className="flex items-center space-x-1.5 text-neutral-600 font-mono text-[11px]">
+                          <span>{order.order_number}</span>
                           <button
-                            onClick={() =>
-                              setActiveMenuId(isMenuOpen ? null : order.id)
-                            }
-                            className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-gray-700 transition-colors cursor-pointer"
+                            onClick={() => handleCopyId(order.order_number, order.id)}
+                            title="Copy Order ID"
+                            className="p-1 hover:bg-neutral-100 rounded text-neutral-400 hover:text-neutral-700 transition-colors cursor-pointer"
                           >
-                            <MoreVertical className="w-4 h-4" />
+                            {copiedId === order.id ? (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
                           </button>
+                        </div>
+                      </TableCell>
 
-                          {/* Dropdown Menu */}
-                          {isMenuOpen && (
-                            <div className="absolute right-4 top-10 z-40 w-48 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 text-xs text-left animate-in fade-in zoom-in-95">
-                              <button
-                                onClick={() => {
-                                  setInspectOrder(order);
-                                  setActiveMenuId(null);
-                                }}
-                                className="w-full px-3.5 py-2 hover:bg-gray-50 flex items-center space-x-2 text-gray-700 font-medium cursor-pointer"
-                              >
-                                <Eye className="w-3.5 h-3.5 text-gray-400" />
-                                <span>View Domain Details</span>
-                              </button>
+                      {/* Customer Name & Phone */}
+                      <TableCell className="py-3.5 px-4">
+                        <div className="font-bold text-neutral-900">{order.customer_name}</div>
+                        {order.shipping_address?.phone && (
+                          <div className="text-[11px] text-neutral-500 font-mono">
+                            📞 {order.shipping_address.phone}
+                          </div>
+                        )}
+                      </TableCell>
 
-                              <div className="my-1 border-t border-gray-100" />
-                              <div className="px-3 py-1 text-[10px] uppercase font-bold text-gray-400">
-                                Change Status
-                              </div>
+                      {/* Product Name */}
+                      <TableCell className="py-3.5 px-4 text-neutral-700">
+                        {order.product_name}
+                      </TableCell>
 
-                              <button
-                                onClick={() => {
-                                  dispatch(updateOrderStatusThunk({ id: order.id, status: 'Pending', version: order.version }));
-                                  dispatch(updateOrderStatus({ id: order.id, status: 'Pending' }));
-                                  setActiveMenuId(null);
-                                  showToast(`Status updated to Pending`);
-                                }}
-                                className="w-full px-3.5 py-1.5 hover:bg-purple-50 flex items-center space-x-2 text-purple-700 cursor-pointer text-left text-xs font-medium"
-                              >
-                                <span className="w-2 h-2 rounded-full bg-purple-500 shrink-0" />
-                                <span>Mark Pending</span>
-                              </button>
+                      {/* SKU */}
+                      <TableCell className="py-3.5 px-4 text-neutral-500 font-mono text-[11px]">
+                        {order.sku}
+                      </TableCell>
 
-                              <button
-                                onClick={() => {
-                                  dispatch(updateOrderStatusThunk({ id: order.id, status: 'Paid', version: order.version }));
-                                  dispatch(updateOrderStatus({ id: order.id, status: 'Processing' }));
-                                  setActiveMenuId(null);
-                                  showToast(`Status updated to Processing`);
-                                }}
-                                className="w-full px-3.5 py-1.5 hover:bg-amber-50 flex items-center space-x-2 text-amber-700 cursor-pointer text-left text-xs font-medium"
-                              >
-                                <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-                                <span>Mark Processing</span>
-                              </button>
+                      {/* Payment */}
+                      <TableCell className="py-3.5 px-4 text-neutral-600">
+                        {order.payment_method}
+                      </TableCell>
 
-                              <button
-                                onClick={() => {
-                                  dispatch(updateOrderStatusThunk({ id: order.id, status: 'Shipped', version: order.version }));
-                                  dispatch(updateOrderStatus({ id: order.id, status: 'Delivered' }));
-                                  setActiveMenuId(null);
-                                  showToast(`Status updated to Delivered`);
-                                }}
-                                className="w-full px-3.5 py-1.5 hover:bg-emerald-50 flex items-center space-x-2 text-emerald-700 cursor-pointer text-left text-xs font-medium"
-                              >
-                                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                                <span>Mark Delivered</span>
-                              </button>
+                      {/* Amount */}
+                      <TableCell className="py-3.5 px-4 font-bold text-neutral-900 font-mono">
+                        {order.currency}{order.amount.toFixed(2)}
+                      </TableCell>
 
-                              <button
-                                onClick={() => {
-                                  dispatch(updateOrderStatusThunk({ id: order.id, status: 'Cancelled', version: order.version }));
-                                  dispatch(updateOrderStatus({ id: order.id, status: 'Returned' }));
-                                  setActiveMenuId(null);
-                                  showToast(`Status updated to Returned`);
-                                }}
-                                className="w-full px-3.5 py-1.5 hover:bg-rose-50 flex items-center space-x-2 text-rose-700 cursor-pointer text-left text-xs font-medium"
-                              >
-                                <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
-                                <span>Mark Returned</span>
-                              </button>
+                      {/* Status Badge */}
+                      <TableCell className="py-3.5 px-4">
+                        {renderStatusBadge(order.status)}
+                      </TableCell>
 
-                              <div className="my-1 border-t border-gray-100" />
+                      {/* Actions DropdownMenu */}
+                      <TableCell className="py-3.5 px-4 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-neutral-400 hover:text-neutral-700">
+                              <MoreVertical className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48 bg-white border-neutral-200">
+                            <DropdownMenuItem
+                              onClick={() => setInspectOrder(order)}
+                              className="text-xs cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5 mr-2 text-neutral-500" />
+                              <span>View Domain Details</span>
+                            </DropdownMenuItem>
 
-                              <button
-                                onClick={() => {
-                                  dispatch(deleteOrderThunk(order.id));
-                                  dispatch(removeOrder(order.id));
-                                  setActiveMenuId(null);
-                                  showToast(`Order ${order.order_number} deleted`);
-                                }}
-                                className="w-full px-3.5 py-2 hover:bg-rose-50 flex items-center space-x-2 text-rose-600 font-semibold cursor-pointer text-left text-xs"
-                              >
-                                <Trash2 className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                                <span>Delete Order</span>
-                              </button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuLabel className="text-[10px] uppercase font-bold text-neutral-400">
+                              Change Status
+                            </DropdownMenuLabel>
 
-          {/* Footer Pagination Bar matching Screenshot */}
-          <div className="px-6 py-4 border-t border-gray-100 bg-gray-50/40 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-semibold text-gray-500">
+                            <DropdownMenuItem
+                              onClick={() => void updateStatus(order, 'Pending', 'Pending')}
+                              className="text-xs text-purple-700 cursor-pointer"
+                            >
+                              <span className="w-2 h-2 rounded-full bg-purple-500 mr-2 shrink-0" />
+                              <span>Mark Pending</span>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              onClick={() => void updateStatus(order, 'Paid', 'Processing')}
+                              className="text-xs text-amber-700 cursor-pointer"
+                            >
+                              <span className="w-2 h-2 rounded-full bg-amber-500 mr-2 shrink-0" />
+                              <span>Mark Processing</span>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              onClick={() => void updateStatus(order, 'Shipped', 'Delivered')}
+                              className="text-xs text-emerald-700 cursor-pointer"
+                            >
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 mr-2 shrink-0" />
+                              <span>Mark Delivered</span>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              onClick={() => void updateStatus(order, 'Cancelled', 'Returned')}
+                              className="text-xs text-rose-700 cursor-pointer"
+                            >
+                              <span className="w-2 h-2 rounded-full bg-rose-500 mr-2 shrink-0" />
+                              <span>Mark Returned</span>
+                            </DropdownMenuItem>
+
+                            {isSuperAdmin && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => void deleteOrder(order)}
+                                  className="text-xs text-rose-600 font-semibold cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 mr-2 text-rose-500" />
+                                  <span>Delete Order</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+
+          {/* Footer Pagination Bar */}
+          <div className="px-6 py-4 border-t border-neutral-100 bg-neutral-50/40 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs font-semibold text-neutral-500">
             <div>
               Showing {sortedOrders.length > 0 ? (currentPage - 1) * pageSize + 1 : 0} -{' '}
-              {Math.min(currentPage * pageSize, sortedOrders.length)} of {40} products
+              {Math.min(currentPage * pageSize, sortedOrders.length)} of {sortedOrders.length} orders
             </div>
 
             {/* Pagination buttons */}
             <div className="flex items-center space-x-2">
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={currentPage === 1}
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1 cursor-pointer transition-all shadow-2xs"
+                className="h-8 rounded-xl text-xs"
               >
-                <ChevronLeft className="w-3.5 h-3.5" />
+                <ChevronLeft className="w-3.5 h-3.5 mr-1" />
                 <span>Previous</span>
-              </button>
+              </Button>
 
               {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
-                <button
+                <Button
                   key={pg}
+                  variant={currentPage === pg ? 'primary' : 'outline'}
+                  size="sm"
                   onClick={() => setCurrentPage(pg)}
-                  className={`w-7 h-7 rounded-xl font-bold transition-all cursor-pointer ${
-                    currentPage === pg
-                      ? 'bg-[#7c3aed] text-white shadow-2xs'
-                      : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-                  }`}
+                  className="w-8 h-8 p-0 rounded-xl font-bold text-xs"
                 >
                   {pg}
-                </button>
+                </Button>
               ))}
 
-              <button
+              <Button
+                variant="outline"
+                size="sm"
                 disabled={currentPage >= totalPages}
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                className="px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1 cursor-pointer transition-all shadow-2xs"
+                className="h-8 rounded-xl text-xs"
               >
                 <span>Next</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+                <ChevronRight className="w-3.5 h-3.5 ml-1" />
+              </Button>
             </div>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Add New Order Modal */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-xs"
-            onClick={() => setIsAddModalOpen(false)}
-          />
-          <div className="relative z-10 bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95">
-            <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="font-extrabold text-base text-gray-900 flex items-center space-x-2">
-                <Plus className="w-4 h-4 text-[#7c3aed]" />
-                <span>Create New Order</span>
-              </h3>
-              <button
-                onClick={() => setIsAddModalOpen(false)}
-                className="p-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200/50 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+        <Dialog open={true} onOpenChange={(open) => !open && setIsAddModalOpen(false)}>
+          <DialogContent className="max-w-md bg-white border-neutral-200 rounded-2xl">
+            <DialogHeader>
+              <DialogTitle className="font-extrabold text-base text-neutral-900 font-serif">
+                Create New Order
+              </DialogTitle>
+              <DialogDescription className="text-xs text-neutral-500">
+                Manually record a bespoke or phone order into PostgreSQL.
+              </DialogDescription>
+            </DialogHeader>
 
-            <form onSubmit={handleAddOrderSubmit} className="p-6 space-y-4 text-xs font-semibold">
-              <div>
-                <label className="block text-gray-700 mb-1">Customer Name *</label>
-                <input
+            <form onSubmit={handleAddOrderSubmit} className="space-y-4 text-xs font-semibold pt-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="add-cust-name" className="text-neutral-700 text-xs">Customer Name *</Label>
+                <Input
+                  id="add-cust-name"
                   type="text"
                   required
                   placeholder="e.g. Jane Cooper"
@@ -691,39 +717,42 @@ export const OrdersPage: React.FC = () => {
                   onChange={(e) =>
                     setNewOrderForm({ ...newOrderForm, customerName: e.target.value })
                   }
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20 focus:border-[#7c3aed]"
+                  className="h-9 bg-neutral-50"
                 />
               </div>
 
-              <div>
-                <label className="block text-gray-700 mb-1">Product Name *</label>
-                <input
+              <div className="space-y-1.5">
+                <Label htmlFor="add-prod-name" className="text-neutral-700 text-xs">Product Name *</Label>
+                <Input
+                  id="add-prod-name"
                   type="text"
                   required
-                  placeholder="e.g. Nike Men's Pullover"
+                  placeholder="e.g. Noir Silk Crepe Abaya"
                   value={newOrderForm.productName}
                   onChange={(e) =>
                     setNewOrderForm({ ...newOrderForm, productName: e.target.value })
                   }
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20 focus:border-[#7c3aed]"
+                  className="h-9 bg-neutral-50"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-gray-700 mb-1">SKU Code</label>
-                  <input
+                <div className="space-y-1.5">
+                  <Label htmlFor="add-sku" className="text-neutral-700 text-xs">SKU Code</Label>
+                  <Input
+                    id="add-sku"
                     type="text"
                     placeholder="SK-45"
                     value={newOrderForm.sku}
                     onChange={(e) => setNewOrderForm({ ...newOrderForm, sku: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20 focus:border-[#7c3aed]"
+                    className="h-9 bg-neutral-50 font-mono"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-gray-700 mb-1">Amount ($) *</label>
-                  <input
+                <div className="space-y-1.5">
+                  <Label htmlFor="add-amount" className="text-neutral-700 text-xs">Amount ($) *</Label>
+                  <Input
+                    id="add-amount"
                     type="number"
                     step="0.01"
                     required
@@ -732,15 +761,16 @@ export const OrdersPage: React.FC = () => {
                     onChange={(e) =>
                       setNewOrderForm({ ...newOrderForm, amount: e.target.value })
                     }
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20 focus:border-[#7c3aed]"
+                    className="h-9 bg-neutral-50 font-mono"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-gray-700 mb-1">Payment Method</label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="add-payment" className="text-neutral-700 text-xs">Payment Method</Label>
                   <select
+                    id="add-payment"
                     value={newOrderForm.paymentMethod}
                     onChange={(e) =>
                       setNewOrderForm({
@@ -748,7 +778,7 @@ export const OrdersPage: React.FC = () => {
                         paymentMethod: e.target.value as any,
                       })
                     }
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20 focus:border-[#7c3aed]"
+                    className="w-full h-9 px-3 bg-neutral-50 border border-neutral-200 rounded-lg text-xs"
                   >
                     <option value="Cash on Delivery">Cash on Delivery</option>
                     <option value="Paid via PayPal">Paid via PayPal</option>
@@ -757,14 +787,15 @@ export const OrdersPage: React.FC = () => {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-gray-700 mb-1">Order Status</label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="add-status" className="text-neutral-700 text-xs">Order Status</Label>
                   <select
+                    id="add-status"
                     value={newOrderForm.status}
                     onChange={(e) =>
                       setNewOrderForm({ ...newOrderForm, status: e.target.value as OrderState })
                     }
-                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#7c3aed]/20 focus:border-[#7c3aed]"
+                    className="w-full h-9 px-3 bg-neutral-50 border border-neutral-200 rounded-lg text-xs"
                   >
                     <option value="Pending">Pending</option>
                     <option value="Processing">Processing</option>
@@ -774,85 +805,82 @@ export const OrdersPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-gray-100 flex items-center justify-end space-x-2">
-                <button
+              <DialogFooter className="pt-3 border-t border-neutral-100 flex items-center justify-end space-x-2">
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-100 font-semibold cursor-pointer"
+                  className="rounded-xl h-9"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
-                  className="px-4 py-2 bg-[#7c3aed] hover:bg-[#6d28d9] text-white font-bold rounded-xl shadow-sm cursor-pointer"
+                  variant="primary"
+                  size="sm"
+                  className="rounded-xl h-9 font-bold"
                 >
                   Create Order
-                </button>
-              </div>
+                </Button>
+              </DialogFooter>
             </form>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Inspect Domain Order Modal */}
       {inspectOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-xs"
-            onClick={() => setInspectOrder(null)}
-          />
-          <div className="relative z-10 bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-lg overflow-hidden animate-in fade-in zoom-in-95">
-            <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+        <Dialog open={true} onOpenChange={(open) => !open && setInspectOrder(null)}>
+          <DialogContent className="max-w-lg bg-white border-neutral-200 rounded-2xl">
+            <DialogHeader>
               <div className="flex items-center space-x-2">
-                <Shield className="w-4 h-4 text-[#7c3aed]" />
-                <h3 className="font-extrabold text-base text-gray-900">
+                <Shield className="w-4 h-4 text-amber-700" />
+                <DialogTitle className="font-extrabold text-base text-neutral-900 font-serif">
                   Domain Order Specification ({inspectOrder.order_number})
-                </h3>
+                </DialogTitle>
               </div>
-              <button
-                onClick={() => setInspectOrder(null)}
-                className="p-1 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200/50 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+              <DialogDescription className="text-xs text-neutral-500">
+                PostgreSQL domain entity snapshot with OCC version and idempotency metadata.
+              </DialogDescription>
+            </DialogHeader>
 
-            <div className="p-6 space-y-4 text-xs font-medium text-gray-700">
+            <div className="space-y-4 text-xs font-medium text-neutral-700 pt-2">
               <div className="p-3 bg-purple-50/50 rounded-xl border border-purple-100 space-y-1">
-                <div className="flex items-center justify-between text-gray-500 font-mono text-[11px]">
+                <div className="flex items-center justify-between text-neutral-500 font-mono text-[11px]">
                   <span>Backend Internal UUID:</span>
-                  <span className="font-bold text-gray-800">{inspectOrder.id}</span>
+                  <span className="font-bold text-neutral-800">{inspectOrder.id}</span>
                 </div>
-                <div className="flex items-center justify-between text-gray-500 font-mono text-[11px]">
+                <div className="flex items-center justify-between text-neutral-500 font-mono text-[11px]">
                   <span>Idempotency Key:</span>
                   <span className="text-purple-700">{inspectOrder.idempotency_key || 'N/A'}</span>
                 </div>
-                <div className="flex items-center justify-between text-gray-500 font-mono text-[11px]">
+                <div className="flex items-center justify-between text-neutral-500 font-mono text-[11px]">
                   <span>Optimistic Lock (OCC Version):</span>
-                  <span className="font-bold text-gray-900">v{inspectOrder.version || 1}</span>
+                  <span className="font-bold text-neutral-900">v{inspectOrder.version || 1}</span>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <div className="text-gray-400 text-[10px] uppercase font-bold tracking-wider mb-1">
+                  <div className="text-neutral-400 text-[10px] uppercase font-bold tracking-wider mb-1">
                     Customer & Contact Phone
                   </div>
-                  <div className="font-bold text-gray-900 flex items-center space-x-1">
-                    <User className="w-3.5 h-3.5 text-gray-400" />
+                  <div className="font-bold text-neutral-900 flex items-center space-x-1">
+                    <User className="w-3.5 h-3.5 text-neutral-400" />
                     <span>{inspectOrder.customer_name}</span>
                   </div>
-                  <div className="text-gray-600 font-mono text-[11px] mt-0.5">
+                  <div className="text-neutral-600 font-mono text-[11px] mt-0.5">
                     📞 {inspectOrder.shipping_address?.phone || '+966 50 123 4567'}
                   </div>
                 </div>
 
                 <div>
-                  <div className="text-gray-400 text-[10px] uppercase font-bold tracking-wider mb-1">
+                  <div className="text-neutral-400 text-[10px] uppercase font-bold tracking-wider mb-1">
                     Payment & Amount
                   </div>
-                  <div className="font-bold text-gray-900 flex items-center space-x-1">
-                    <CreditCard className="w-3.5 h-3.5 text-gray-400" />
+                  <div className="font-bold text-neutral-900 flex items-center space-x-1">
+                    <CreditCard className="w-3.5 h-3.5 text-neutral-400" />
                     <span>
                       {inspectOrder.currency}
                       {inspectOrder.amount.toFixed(2)} ({inspectOrder.payment_method})
@@ -862,13 +890,13 @@ export const OrdersPage: React.FC = () => {
               </div>
 
               <div>
-                <div className="text-gray-400 text-[10px] uppercase font-bold tracking-wider mb-1">
+                <div className="text-neutral-400 text-[10px] uppercase font-bold tracking-wider mb-1">
                   Product Item Breakdown
                 </div>
-                <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between">
+                <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200 flex items-center justify-between">
                   <div>
-                    <div className="font-bold text-gray-900">{inspectOrder.product_name}</div>
-                    <div className="text-gray-500 font-mono text-[11px]">SKU: {inspectOrder.sku}</div>
+                    <div className="font-bold text-neutral-900">{inspectOrder.product_name}</div>
+                    <div className="text-neutral-500 font-mono text-[11px]">SKU: {inspectOrder.sku}</div>
                   </div>
                   {renderStatusBadge(inspectOrder.status)}
                 </div>
@@ -876,21 +904,21 @@ export const OrdersPage: React.FC = () => {
 
               {inspectOrder.shipping_address && (
                 <div>
-                  <div className="text-gray-400 text-[10px] uppercase font-bold tracking-wider mb-1">
+                  <div className="text-neutral-400 text-[10px] uppercase font-bold tracking-wider mb-1">
                     Shipping Address & Phone
                   </div>
-                  <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 space-y-1">
-                    <div className="font-bold text-gray-900 flex items-center justify-between">
+                  <div className="p-3 bg-neutral-50 rounded-xl border border-neutral-200 space-y-1">
+                    <div className="font-bold text-neutral-900 flex items-center justify-between">
                       <div className="flex items-center space-x-1">
-                        <MapPin className="w-3.5 h-3.5 text-[#7c3aed]" />
+                        <MapPin className="w-3.5 h-3.5 text-purple-600" />
                         <span>{inspectOrder.shipping_address.recipient_name}</span>
                       </div>
-                      <span className="font-mono text-[11px] text-gray-600">
+                      <span className="font-mono text-[11px] text-neutral-600">
                         📞 {inspectOrder.shipping_address.phone}
                       </span>
                     </div>
-                    <div className="text-gray-600">{inspectOrder.shipping_address.street_line1}</div>
-                    <div className="text-gray-600">
+                    <div className="text-neutral-600">{inspectOrder.shipping_address.street_line1}</div>
+                    <div className="text-neutral-600">
                       {inspectOrder.shipping_address.city}, {inspectOrder.shipping_address.state}{' '}
                       {inspectOrder.shipping_address.postal_code}, {inspectOrder.shipping_address.country}
                     </div>
@@ -903,17 +931,19 @@ export const OrdersPage: React.FC = () => {
                 </div>
               )}
 
-              <div className="pt-2 text-right">
-                <button
+              <DialogFooter className="pt-2 text-right">
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => setInspectOrder(null)}
-                  className="px-4 py-2 bg-[#7c3aed] text-white font-bold rounded-xl cursor-pointer"
+                  className="rounded-xl h-9 font-bold"
                 >
                   Close Specification
-                </button>
-              </div>
+                </Button>
+              </DialogFooter>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
     </DashboardLayout>
   );
